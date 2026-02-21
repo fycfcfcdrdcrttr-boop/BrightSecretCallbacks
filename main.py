@@ -10,7 +10,7 @@ from telegram.ext import (
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
-WEBHOOK_URL = "https://bright-secret-callbacks--fycfcdrdcrtr.replit.app"
+WEBHOOK_URL = "https://brightsecretcallbacks-production.up.railway.app"
 
 # -----------------------------
 # گرفتن قیمت از tgju
