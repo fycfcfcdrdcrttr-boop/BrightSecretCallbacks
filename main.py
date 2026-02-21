@@ -1,4 +1,3 @@
-from flask import Flask, request
 import requests
 from bs4 import BeautifulSoup
 from telegram import Update
@@ -9,8 +8,6 @@ from telegram.ext import (
 )
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
-
-WEBHOOK_URL = "https://brightsecretcallbacks-production.up.railway.app"
 
 # -----------------------------
 # گرفتن قیمت از tgju
@@ -66,43 +63,12 @@ async def dollar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(prices)
 
 # -----------------------------
-# ساخت اپ تلگرام
+# اجرای ربات (Polling)
 # -----------------------------
 app = ApplicationBuilder().token(TOKEN).build()
+
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("dollar", dollar))
 
-# -----------------------------
-# Flask برای Webhook
-# -----------------------------
-flask_app = Flask(__name__)
-
-@flask_app.route("/")
-def home():
-    return "Bot is alive"
-
-@flask_app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), app.bot)
-    app.update_queue.put_nowait(update)
-    return "ok"
-
-# -----------------------------
-# اجرا
-# -----------------------------
-import asyncio
-
-async def main():
-    await app.initialize()
-    await app.start()
-    await app.bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
-    flask_app.run(host="0.0.0.0", port=8080)
-
 if __name__ == "__main__":
-    asyncio.run(main())
-# 1
-
-
-
-
-
+    app.run_polling()
