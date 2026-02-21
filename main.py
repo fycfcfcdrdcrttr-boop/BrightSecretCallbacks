@@ -1,45 +1,22 @@
-from flask import Flask
-from threading import Thread
-
-app_web = Flask(__name__)
-
-@app_web.route("/")
-def home():
-    return "Bot is alive"
-
-def run():
-    app_web.run(host="0.0.0.0", port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-
-
+from flask import Flask, request
 import requests
 from bs4 import BeautifulSoup
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    CallbackQueryHandler,
     ContextTypes,
 )
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
+WEBHOOK_URL = "https://bright-secret-callbacks--fycfcdrdcrtr.replit.app"
 
 # -----------------------------
 # گرفتن قیمت از tgju
 # -----------------------------
 def get_market_prices():
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
 
     urls = {
         "dollar": "https://www.tgju.org/profile/price_dollar_rl",
@@ -59,11 +36,7 @@ def get_market_prices():
 
         if price_tag:
             price_text = price_tag.text.strip().replace(",", "")
-            price = int(price_text)
-
-            # دلار ریال هست → تبدیل به تومان
-            price = price // 10
-
+            price = int(price_text) // 10
             results[key] = f"{price:,}"
         else:
             results[key] = "خطا"
@@ -76,111 +49,50 @@ def get_market_prices():
         f"💵 دلار: {results['dollar']} تومان\n"
         f"💰 طلا ۱۸ عیار: {results['gold']} تومان\n"
         f"🪙 سکه: {results['coin']} تومان\n\n"
-        f"🕒 زمان بروزرسانی سایت:\n{site_time}"
+        f"🕒 زمان سایت:\n{site_time}"
     )
 
-
 # -----------------------------
-# /start
+# دستورات
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "سلام 👋\n\n"
-        "دستور‌ها:\n"
-        "/dollar → دریافت قیمت بازار\n"
-        "/auto → فعال‌سازی ارسال خودکار هر ۵ دقیقه\n"
-        "/stop → توقف ارسال خودکار"
+        "سلام 👋\n"
+        "برای دریافت قیمت بازار دستور /dollar رو بزن"
     )
 
-
-# -----------------------------
-# /dollar
-# -----------------------------
 async def dollar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prices = get_market_prices()
-
-    keyboard = [
-        [InlineKeyboardButton("🔄 بروزرسانی", callback_data="refresh")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(prices, reply_markup=reply_markup)
-
+    await update.message.reply_text(prices)
 
 # -----------------------------
-# دکمه بروزرسانی
-# -----------------------------
-async def refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    new_text = get_market_prices()
-
-    keyboard = [
-        [InlineKeyboardButton("🔄 بروزرسانی", callback_data="refresh")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # فقط اگر تغییر کرده ادیت کن
-    if query.message.text != new_text:
-        await query.edit_message_text(new_text, reply_markup=reply_markup)
-
-
-# -----------------------------
-# ارسال خودکار
-# -----------------------------
-async def auto_send(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = context.job.chat_id
-    prices = get_market_prices()
-    await context.bot.send_message(chat_id=chat_id, text=prices)
-
-
-async def auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-
-    context.job_queue.run_repeating(
-        auto_send,
-        interval=300,  # هر 5 دقیقه
-        first=0,
-        chat_id=chat_id,
-        name=str(chat_id)
-    )
-
-    await update.message.reply_text("⏱ ارسال خودکار هر ۵ دقیقه فعال شد.")
-
-
-# -----------------------------
-# توقف ارسال خودکار
-# -----------------------------
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-
-    current_jobs = context.job_queue.get_jobs_by_name(chat_id)
-
-    if not current_jobs:
-        await update.message.reply_text("ارسال خودکار فعال نیست.")
-        return
-
-    for job in current_jobs:
-        job.schedule_removal()
-
-    await update.message.reply_text("⛔ ارسال خودکار متوقف شد.")
-
-
-# -----------------------------
-# ساخت اپ
+# ساخت اپ تلگرام
 # -----------------------------
 app = ApplicationBuilder().token(TOKEN).build()
-
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("dollar", dollar))
-app.add_handler(CommandHandler("auto", auto))
-app.add_handler(CommandHandler("stop", stop))
-app.add_handler(CallbackQueryHandler(refresh, pattern="refresh"))
 
-print("Bot running...")
-keep_alive()
-app.run_polling()
+# -----------------------------
+# Flask برای Webhook
+# -----------------------------
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "Bot is alive"
+
+@flask_app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), app.bot)
+    app.update_queue.put_nowait(update)
+    return "ok"
+
+# -----------------------------
+# اجرا
+# -----------------------------
+if __name__ == "__main__":
+    app.bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
+    flask_app.run(host="0.0.0.0", port=8080)
 
 
 
