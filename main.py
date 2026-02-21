@@ -90,12 +90,18 @@ def webhook():
 # -----------------------------
 # اجرا
 # -----------------------------
-if __name__ == "__main__":
-    app.bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
+import asyncio
+
+async def main():
+    await app.initialize()
+    await app.start()
+    await app.bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
     flask_app.run(host="0.0.0.0", port=8080)
 
-
+if __name__ == "__main__":
+    asyncio.run(main())
 # 1
+
 
 
 
