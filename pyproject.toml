@@ -5,6 +5,8 @@ description = ""
 authors = ["Your Name <you@example.com>"]
 requires-python = ">=3.11"
 dependencies = [
-    "python-telegram-bot>=22.6",
+    "python-telegram-bot[job-queue]>=22.6",
+    "flask>=3.0.0",
     "requests>=2.32.5",
+    "beautifulsoup4>=4.12.0",
 ]
