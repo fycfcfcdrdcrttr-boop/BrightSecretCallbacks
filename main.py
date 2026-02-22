@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import pytz
 import json
 import os
+import re
+
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
@@ -85,6 +87,79 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     member = await context.bot.get_chat_member(chat.id, user.id)
+
+
+
+     # --------------------------
+    # مدیریت قفل‌ها
+    # --------------------------
+
+    locks = load_json(LOCK_FILE)
+    gid = str(chat.id)
+
+    if gid not in locks:
+        locks[gid] = {
+            "link": False,
+            "photo": False,
+            "voice": False,
+            "forward": False,
+            "only_admin": False
+        }
+
+    # فقط ادمین اجازه تنظیم قفل
+    if member.status in ["administrator", "creator"]:
+
+        lock_commands = {
+            "قفل لینک": ("link", True),
+            "باز لینک": ("link", False),
+            "قفل عکس": ("photo", True),
+            "باز عکس": ("photo", False),
+            "قفل ویس": ("voice", True),
+            "باز ویس": ("voice", False),
+            "قفل فوروارد": ("forward", True),
+            "باز فوروارد": ("forward", False),
+            "فقط ادمین": ("only_admin", True),
+            "باز همه": ("only_admin", False),
+        }
+
+        if text in lock_commands:
+            key, value = lock_commands[text]
+            locks[gid][key] = value
+            save_json(LOCK_FILE, locks)
+            await msg.reply_text("✅ تنظیم شد.")
+            return
+
+    # اگر کاربر عادی است
+    if member.status not in ["administrator", "creator"]:
+
+        # حالت فقط ادمین
+        if locks[gid]["only_admin"]:
+            await msg.delete()
+            return
+
+        # قفل لینک
+        if locks[gid]["link"] and text:
+            if re.search(r"http[s]?://|www\\.", text):
+                await msg.delete()
+                return
+
+        # قفل عکس
+        if locks[gid]["photo"] and msg.photo:
+            await msg.delete()
+            return
+
+        # قفل ویس
+        if locks[gid]["voice"] and msg.voice:
+            await msg.delete()
+            return
+
+        # قفل فوروارد
+        if locks[gid]["forward"] and msg.forward_date:
+            await msg.delete()
+            return
+
+
+
 
     # --------------------------
     # 📊 ثبت آمار پیام
