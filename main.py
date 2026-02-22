@@ -10,8 +10,9 @@ from telegram.ext import (
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
+
 # -----------------------------
-# گرفتن قیمت
+# گرفتن قیمت از tgju
 # -----------------------------
 def fetch_price(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -34,7 +35,7 @@ def fetch_price(url):
 
 
 # -----------------------------
-# ساخت منوی اصلی
+# منوی اصلی
 # -----------------------------
 def main_menu(first_name):
     keyboard = [
@@ -42,24 +43,30 @@ def main_menu(first_name):
         [InlineKeyboardButton("💰 قیمت طلا", callback_data="gold")],
         [InlineKeyboardButton("🪙 قیمت سکه", callback_data="coin")],
     ]
-    return (
+
+    text = (
         f"سلام {first_name} جان 👋\n\n"
-        "یکی از گزینه‌ها رو انتخاب کن:",
-        InlineKeyboardMarkup(keyboard)
+        "یکی از گزینه‌ها رو انتخاب کن:"
     )
+
+    return text, InlineKeyboardMarkup(keyboard)
 
 
 # -----------------------------
-# start
+# /start
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text, keyboard = main_menu(user.first_name)
-    await update.message.reply_text(text, reply_markup=keyboard)
+
+    await update.message.reply_text(
+        text,
+        reply_markup=keyboard
+    )
 
 
 # -----------------------------
-# دکمه‌ها
+# هندل دکمه‌ها
 # -----------------------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -71,36 +78,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "coin": "https://www.tgju.org/profile/sekee"
     }
 
-    # اگر بازگشت بود
-    if query.data == "back":
-        user = query.from_user
-        text, keyboard = main_menu(user.first_name)
-        await query.edit_message_text(text, reply_markup=keyboard)
-        return
-
-    # اگر قیمت انتخاب شد
-    price, site_time = fetch_price(urls[query.data])
-
     names = {
         "dollar": "💵 دلار",
         "gold": "💰 طلا ۱۸ عیار",
         "coin": "🪙 سکه"
     }
 
-    keyboard = [
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="back")]
-    ]
+    selected = query.data
+    price, site_time = fetch_price(urls[selected])
 
-    await query.edit_message_text(
-        f"{names[query.data]}\n\n"
+    await query.message.reply_text(
+        f"{names[selected]}\n\n"
         f"قیمت: {price} تومان\n\n"
-        f"🕒 زمان سایت:\n{site_time}",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        f"🕒 زمان سایت:\n{site_time}"
     )
 
 
 # -----------------------------
-# اجرا
+# اجرای ربات
 # -----------------------------
 app = ApplicationBuilder().token(TOKEN).build()
 
