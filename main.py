@@ -1,9 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from telegram import (
-    Update,
-    ChatPermissions
-)
+from telegram import Update, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -13,9 +10,28 @@ from telegram.ext import (
 from telegram.constants import ChatAction, ParseMode
 from datetime import datetime
 import pytz
+import json
+import os
 
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
+MUTE_FILE = "muted_users.json"
+
+
+# ==============================
+# مدیریت لیست سکوت
+# ==============================
+
+def load_muted():
+    if not os.path.exists(MUTE_FILE):
+        return {}
+    with open(MUTE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_muted(data):
+    with open(MUTE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 
 # ==============================
@@ -76,12 +92,13 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type not in ["group", "supergroup"]:
         return
 
+    member = await context.bot.get_chat_member(chat.id, user.id)
+    muted_users = load_muted()
+
     # ======================
-    # سکوت دائمی
+    # سکوت
     # ======================
     if text == "سکوت" and update.message.reply_to_message:
-
-        member = await context.bot.get_chat_member(chat.id, user.id)
 
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ فقط ادمین میتونه سکوت کنه.")
@@ -95,6 +112,10 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             permissions=ChatPermissions(can_send_messages=False)
         )
 
+        # ذخیره در لیست
+        muted_users[str(target_user.id)] = target_user.first_name
+        save_muted(muted_users)
+
         await update.message.reply_text(
             f"🔇 {target_user.first_name} تا اطلاع ثانوی سکوت شد."
         )
@@ -104,8 +125,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # حذف سکوت
     # ======================
     if text == "حذف سکوت" and update.message.reply_to_message:
-
-        member = await context.bot.get_chat_member(chat.id, user.id)
 
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ فقط ادمین میتونه حذف سکوت کنه.")
@@ -120,13 +139,36 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             until_date=None
         )
 
+        # حذف از لیست
+        muted_users.pop(str(target_user.id), None)
+        save_muted(muted_users)
+
         await update.message.reply_text(
-            f"🔊 کاربر {target_user.first_name} از حالت سکوت خارج شد و می‌تواند پیام ارسال کند."
+            f"🔊 کاربر {target_user.first_name} از حالت سکوت خارج شد."
         )
         return
 
     # ======================
-    # پاسخ ساده
+    # لیست سکوت
+    # ======================
+    if text == "لیست سکوت":
+
+        if member.status not in ["administrator", "creator"]:
+            return
+
+        if not muted_users:
+            await update.message.reply_text("📋 هیچ کاربری در حالت سکوت نیست.")
+            return
+
+        msg = "📋 لیست افراد سکوت‌شده:\n\n"
+        for name in muted_users.values():
+            msg += f"• {name}\n"
+
+        await update.message.reply_text(msg)
+        return
+
+    # ======================
+    # جواب ساده
     # ======================
     if text == "ربات":
         await update.message.reply_text(f"جانم {user.first_name} 😊")
@@ -159,7 +201,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================
 
 app = ApplicationBuilder().token(TOKEN).build()
-
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_messages))
 
 if __name__ == "__main__":
