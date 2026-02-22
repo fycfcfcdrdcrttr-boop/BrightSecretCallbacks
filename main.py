@@ -1,10 +1,11 @@
 import requests
 from bs4 import BeautifulSoup
-from telegram import Update, ChatPermissions
+from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters
 )
@@ -14,6 +15,7 @@ import pytz
 import json
 import os
 import re
+import random
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 ADMIN_ID = 295168185
@@ -73,6 +75,53 @@ def fetch_price(url):
 
 
 # ==============================
+# بازی سنگ کاغذ قیچی
+# ==============================
+
+def rps_menu():
+    keyboard = [[
+        InlineKeyboardButton("✊ سنگ", callback_data="rps_rock"),
+        InlineKeyboardButton("✋ کاغذ", callback_data="rps_paper"),
+        InlineKeyboardButton("✌ قیچی", callback_data="rps_scissors"),
+    ]]
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def rps_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_choice = query.data.split("_")[1]
+    choices = ["rock", "paper", "scissors"]
+    bot_choice = random.choice(choices)
+
+    emoji = {
+        "rock": "✊ سنگ",
+        "paper": "✋ کاغذ",
+        "scissors": "✌ قیچی"
+    }
+
+    if user_choice == bot_choice:
+        result = "🤝 مساوی شد!"
+    elif (
+        (user_choice == "rock" and bot_choice == "scissors") or
+        (user_choice == "paper" and bot_choice == "rock") or
+        (user_choice == "scissors" and bot_choice == "paper")
+    ):
+        result = "🎉 تو بردی!"
+    else:
+        result = "😎 من بردم!"
+
+    text = (
+        f"👤 انتخاب تو: {emoji[user_choice]}\n"
+        f"🤖 انتخاب من: {emoji[bot_choice]}\n\n"
+        f"{result}"
+    )
+
+    await query.edit_message_text(text)
+
+
+# ==============================
 # /start
 # ==============================
 
@@ -122,6 +171,17 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     member = await context.bot.get_chat_member(chat.id, user.id)
 
     # ==============================
+    # شروع بازی
+    # ==============================
+
+    if text == "بازی":
+        await msg.reply_text(
+            "🎮 سنگ، کاغذ یا قیچی رو انتخاب کن:",
+            reply_markup=rps_menu()
+        )
+        return
+
+    # ==============================
     # مدیریت قفل‌ها
     # ==============================
 
@@ -137,7 +197,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "only_admin": False
         }
 
-    # تنظیم قفل توسط ادمین
     if member.status in ["administrator", "creator"]:
 
         lock_commands = {
@@ -160,7 +219,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("✅ تنظیم شد.")
             return
 
-    # اجرای قفل برای کاربر عادی
     if member.status not in ["administrator", "creator"]:
 
         if locks[gid]["only_admin"]:
@@ -219,7 +277,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"🔇 {target.first_name} سکوت شد.")
         return
 
-    # حذف سکوت
     if text == "حذف سکوت" and msg.reply_to_message:
         if member.status not in ["administrator", "creator"]:
             return
@@ -255,7 +312,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(result, parse_mode=ParseMode.HTML)
         return
 
-    # پاسخ ساده
     if text == "ربات":
         await msg.reply_text(f"جانم {user.first_name} 😊")
 
@@ -268,6 +324,7 @@ app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("users", users_command))
+app.add_handler(CallbackQueryHandler(rps_handler, pattern="^rps_"))
 app.add_handler(MessageHandler(filters.ALL, group_messages))
 
 if __name__ == "__main__":
