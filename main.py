@@ -37,6 +37,9 @@ def fetch_price(url):
 # منوی دکمه‌ها
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    first_name = user.first_name
+
     keyboard = [
         [InlineKeyboardButton("💵 قیمت دلار", callback_data="dollar")],
         [InlineKeyboardButton("💰 قیمت طلا", callback_data="gold")],
@@ -46,7 +49,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "سلام 👋\nلطفاً یکی از گزینه‌ها را انتخاب کن:",
+        f"سلام {first_name} جان 👋\n\n"
+        "یکی از گزینه‌ها رو انتخاب کن:",
         reply_markup=reply_markup
     )
 
