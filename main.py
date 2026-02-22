@@ -25,27 +25,36 @@ ADMIN_ID = 295168185
 USERS_FILE = "users.json"
 
 
-# -----------------------------
-# ذخیره کاربران
-# -----------------------------
+# ==============================
+# مدیریت کاربران
+# ==============================
+
 def load_users():
     if not os.path.exists(USERS_FILE):
         return []
-    with open(USERS_FILE, "r") as f:
+    with open(USERS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_user(user_id):
+def save_user(user):
     users = load_users()
-    if user_id not in users:
-        users.append(user_id)
-        with open(USERS_FILE, "w") as f:
-            json.dump(users, f)
+
+    if not any(u["user_id"] == user.id for u in users):
+        users.append({
+            "user_id": user.id,
+            "first_name": user.first_name,
+            "username": user.username if user.username else "ندارد",
+            "joined_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, ensure_ascii=False, indent=4)
 
 
-# -----------------------------
+# ==============================
 # گرفتن قیمت
-# -----------------------------
+# ==============================
+
 def fetch_price(url):
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers, timeout=10)
@@ -66,9 +75,6 @@ def fetch_price(url):
     return price_formatted, site_time
 
 
-# -----------------------------
-# ساخت پیام قیمت
-# -----------------------------
 def build_price_message(name, price, site_time):
     iran_tz = pytz.timezone("Asia/Tehran")
     iran_time = datetime.now(iran_tz).strftime("%H:%M:%S")
@@ -84,9 +90,10 @@ def build_price_message(name, price, site_time):
     )
 
 
-# -----------------------------
+# ==============================
 # منوی اصلی
-# -----------------------------
+# ==============================
+
 def main_menu(first_name):
     keyboard = [
         [InlineKeyboardButton("💵 قیمت دلار", callback_data="dollar")],
@@ -102,12 +109,13 @@ def main_menu(first_name):
     return text, InlineKeyboardMarkup(keyboard)
 
 
-# -----------------------------
+# ==============================
 # start
-# -----------------------------
+# ==============================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    save_user(user.id)
+    save_user(user)
 
     text, keyboard = main_menu(user.first_name)
 
@@ -118,9 +126,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# -----------------------------
+# ==============================
 # دکمه‌ها
-# -----------------------------
+# ==============================
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -168,61 +177,55 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# -----------------------------
-# ارسال خودکار
-# -----------------------------
-async def auto_send(context: ContextTypes.DEFAULT_TYPE):
-    users = load_users()
-    price, site_time = fetch_price("https://www.tgju.org/profile/price_dollar_rl")
-    message = build_price_message("💵 دلار", price, site_time)
+# ==============================
+# دیدن لیست کاربران (ادمین)
+# ==============================
 
-    for user_id in users:
-        try:
-            await context.bot.send_message(user_id, message, parse_mode=ParseMode.HTML)
-        except:
-            pass
-
-
-async def auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.job_queue.run_repeating(auto_send, interval=300, first=0)
-    await update.message.reply_text("ارسال خودکار هر ۵ دقیقه فعال شد.")
-
-
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    jobs = context.job_queue.jobs()
-    for job in jobs:
-        job.schedule_removal()
-    await update.message.reply_text("ارسال خودکار متوقف شد.")
-
-
-# -----------------------------
-# ارسال همگانی (فقط ادمین)
-# -----------------------------
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
-    text = " ".join(context.args)
     users = load_users()
 
-    for user_id in users:
-        try:
-            await context.bot.send_message(user_id, text)
-        except:
-            pass
+    if not users:
+        await update.message.reply_text("هیچ کاربری ثبت نشده.")
+        return
 
-    await update.message.reply_text("پیام برای همه ارسال شد.")
+    message = "📋 لیست کاربران:\n\n"
+
+    for u in users:
+        message += (
+            f"👤 نام: {u['first_name']}\n"
+            f"🔹 یوزرنیم: @{u['username']}\n"
+            f"🆔 آیدی: {u['user_id']}\n"
+            f"📅 تاریخ عضویت: {u['joined_at']}\n"
+            f"━━━━━━━━━━━━━━\n"
+        )
+
+    await update.message.reply_text(message)
 
 
-# -----------------------------
+# ==============================
+# تعداد کاربران (ادمین)
+# ==============================
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    users = load_users()
+    await update.message.reply_text(f"📊 تعداد کاربران: {len(users)}")
+
+
+# ==============================
 # اجرا
-# -----------------------------
+# ==============================
+
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("auto", auto))
-app.add_handler(CommandHandler("stop", stop))
-app.add_handler(CommandHandler("broadcast", broadcast))
+app.add_handler(CommandHandler("users", users))
+app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CallbackQueryHandler(button_handler))
 
 if __name__ == "__main__":
