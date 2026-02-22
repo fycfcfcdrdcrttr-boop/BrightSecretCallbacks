@@ -11,7 +11,7 @@ from telegram.ext import (
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
 # -----------------------------
-# گرفتن قیمت از tgju
+# گرفتن قیمت
 # -----------------------------
 def fetch_price(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -34,29 +34,32 @@ def fetch_price(url):
 
 
 # -----------------------------
-# منوی دکمه‌ها
+# ساخت منوی اصلی
 # -----------------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    first_name = user.first_name
-
+def main_menu(first_name):
     keyboard = [
         [InlineKeyboardButton("💵 قیمت دلار", callback_data="dollar")],
         [InlineKeyboardButton("💰 قیمت طلا", callback_data="gold")],
         [InlineKeyboardButton("🪙 قیمت سکه", callback_data="coin")],
     ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
+    return (
         f"سلام {first_name} جان 👋\n\n"
         "یکی از گزینه‌ها رو انتخاب کن:",
-        reply_markup=reply_markup
+        InlineKeyboardMarkup(keyboard)
     )
 
 
 # -----------------------------
-# هندل کلیک روی دکمه
+# start
+# -----------------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    text, keyboard = main_menu(user.first_name)
+    await update.message.reply_text(text, reply_markup=keyboard)
+
+
+# -----------------------------
+# دکمه‌ها
 # -----------------------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -68,8 +71,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "coin": "https://www.tgju.org/profile/sekee"
     }
 
-    selected = query.data
-    price, site_time = fetch_price(urls[selected])
+    # اگر بازگشت بود
+    if query.data == "back":
+        user = query.from_user
+        text, keyboard = main_menu(user.first_name)
+        await query.edit_message_text(text, reply_markup=keyboard)
+        return
+
+    # اگر قیمت انتخاب شد
+    price, site_time = fetch_price(urls[query.data])
 
     names = {
         "dollar": "💵 دلار",
@@ -77,15 +87,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "coin": "🪙 سکه"
     }
 
+    keyboard = [
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="back")]
+    ]
+
     await query.edit_message_text(
-        f"{names[selected]}\n\n"
+        f"{names[query.data]}\n\n"
         f"قیمت: {price} تومان\n\n"
-        f"🕒 زمان سایت:\n{site_time}"
+        f"🕒 زمان سایت:\n{site_time}",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
 # -----------------------------
-# اجرای ربات
+# اجرا
 # -----------------------------
 app = ApplicationBuilder().token(TOKEN).build()
 
