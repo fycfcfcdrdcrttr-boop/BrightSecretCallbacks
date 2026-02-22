@@ -9,7 +9,9 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
 from telegram.constants import ChatAction, ParseMode
 from datetime import datetime
@@ -99,10 +101,7 @@ def main_menu(first_name):
         [InlineKeyboardButton("🪙 قیمت سکه", callback_data="coin")],
     ]
 
-    text = (
-        f"سلام <b>{first_name}</b> جان 👋\n\n"
-        "یکی از گزینه‌ها رو انتخاب کن:"
-    )
+    text = f"سلام <b>{first_name}</b> جان 👋\n\nیکی از گزینه‌ها رو انتخاب کن:"
 
     return text, InlineKeyboardMarkup(keyboard)
 
@@ -125,7 +124,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================
-# دکمه‌ها
+# پاسخ به دکمه‌ها
 # ==============================
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,83 +173,51 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================
-# لیست کاربران
+# پاسخ داخل گروه
 # ==============================
 
-async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
         return
 
-    users = load_users()
-    text = "📋 لیست کاربران:\n\n"
+    text = update.message.text
+    user = update.effective_user
+    chat_type = update.message.chat.type
 
-    for u in users:
-        text += (
-            f"{u['first_name']} | @{u['username']}\n"
-            f"{u['user_id']}\n"
-            f"{u['joined_at']}\n"
-            f"━━━━━━━━━━━━━━\n"
+    if chat_type not in ["group", "supergroup"]:
+        return
+
+    if not text:
+        return
+
+    text = text.strip()
+
+    if text == "ربات":
+        await update.message.reply_text(f"جانم {user.first_name} 😊")
+        return
+
+    urls = {
+        "قیمت ارز": "https://www.tgju.org/profile/price_dollar_rl",
+        "قیمت طلا": "https://www.tgju.org/profile/geram18",
+        "قیمت سکه": "https://www.tgju.org/profile/sekee"
+    }
+
+    names = {
+        "قیمت ارز": "💵 دلار",
+        "قیمت طلا": "💰 طلا ۱۸ عیار",
+        "قیمت سکه": "🪙 سکه"
+    }
+
+    if text in urls:
+        await update.message.chat.send_action(ChatAction.TYPING)
+
+        price, site_time = fetch_price(urls[text])
+        message = build_price_message(names[text], price, site_time)
+
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.HTML
         )
-
-    await update.message.reply_text(text)
-
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    users = load_users()
-    await update.message.reply_text(f"📊 تعداد کاربران: {len(users)}")
-
-
-# ==============================
-# خروجی اکسل
-# ==============================
-
-async def export_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    users = load_users()
-    df = pd.DataFrame(users)
-    file_name = "users_export.xlsx"
-    df.to_excel(file_name, index=False)
-
-    await update.message.reply_document(
-        document=open(file_name, "rb"),
-        filename=file_name,
-        caption="📊 خروجی کاربران"
-    )
-
-
-# ==============================
-# ارسال همگانی
-# ==============================
-
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    if not context.args:
-        await update.message.reply_text("متن پیام رو بعد از دستور بنویس.")
-        return
-
-    message_text = " ".join(context.args)
-    users = load_users()
-
-    sent = 0
-
-    for user in users:
-        try:
-            await context.bot.send_message(
-                chat_id=user["user_id"],
-                text=message_text
-            )
-            sent += 1
-        except:
-            pass
-
-    await update.message.reply_text(f"✅ پیام برای {sent} نفر ارسال شد.")
 
 
 # ==============================
@@ -260,11 +227,8 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("users", users))
-app.add_handler(CommandHandler("stats", stats))
-app.add_handler(CommandHandler("export", export_users))
-app.add_handler(CommandHandler("broadcast", broadcast))
 app.add_handler(CallbackQueryHandler(button_handler))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_messages))
 
 if __name__ == "__main__":
     app.run_polling()
