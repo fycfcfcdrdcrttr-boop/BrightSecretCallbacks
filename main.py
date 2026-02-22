@@ -19,7 +19,6 @@ TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 ADMIN_ID = 295168185
 
 MUTE_FILE = "muted_users.json"
-STATS_FILE = "daily_stats.json"
 LOCK_FILE = "group_locks.json"
 USERS_FILE = "users.json"
 
@@ -70,7 +69,6 @@ def fetch_price(url):
         price_formatted = "خطا"
 
     iran_time = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%H:%M:%S")
-
     return f"💰 <b>{price_formatted}</b> تومان\n🕒 {iran_time}"
 
 
@@ -92,13 +90,11 @@ async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     users = load_json(USERS_FILE)
-
     if not users:
         await update.message.reply_text("کاربری ثبت نشده.")
         return
 
     msg = "📋 لیست کاربران:\n\n"
-
     for uid, data in users.items():
         msg += f"👤 {data['name']}\n🆔 {uid}\n━━━━━━━━━━━━━━\n"
 
@@ -123,8 +119,125 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     save_user(user)
-
     member = await context.bot.get_chat_member(chat.id, user.id)
+
+    # ==============================
+    # مدیریت قفل‌ها
+    # ==============================
+
+    locks = load_json(LOCK_FILE)
+    gid = str(chat.id)
+
+    if gid not in locks:
+        locks[gid] = {
+            "link": False,
+            "photo": False,
+            "voice": False,
+            "forward": False,
+            "only_admin": False
+        }
+
+    # تنظیم قفل توسط ادمین
+    if member.status in ["administrator", "creator"]:
+
+        lock_commands = {
+            "قفل لینک": ("link", True),
+            "باز لینک": ("link", False),
+            "قفل عکس": ("photo", True),
+            "باز عکس": ("photo", False),
+            "قفل ویس": ("voice", True),
+            "باز ویس": ("voice", False),
+            "قفل فوروارد": ("forward", True),
+            "باز فوروارد": ("forward", False),
+            "فقط ادمین": ("only_admin", True),
+            "باز همه": ("only_admin", False),
+        }
+
+        if text in lock_commands:
+            key, value = lock_commands[text]
+            locks[gid][key] = value
+            save_json(LOCK_FILE, locks)
+            await msg.reply_text("✅ تنظیم شد.")
+            return
+
+    # اجرای قفل برای کاربر عادی
+    if member.status not in ["administrator", "creator"]:
+
+        if locks[gid]["only_admin"]:
+            await msg.delete()
+            return
+
+        if locks[gid]["link"] and text and re.search(r"http[s]?://|www\\.", text):
+            await msg.delete()
+            return
+
+        if locks[gid]["photo"] and msg.photo:
+            await msg.delete()
+            return
+
+        if locks[gid]["voice"] and msg.voice:
+            await msg.delete()
+            return
+
+        if locks[gid]["forward"] and msg.forward_date:
+            await msg.delete()
+            return
+
+    # ==============================
+    # سکوت
+    # ==============================
+
+    muted = load_json(MUTE_FILE)
+
+    if text.startswith("سکوت") and msg.reply_to_message:
+        if member.status not in ["administrator", "creator"]:
+            return
+
+        target = msg.reply_to_message.from_user
+        parts = text.split()
+
+        if len(parts) == 2 and parts[1].isdigit():
+            minutes = int(parts[1])
+            until = datetime.now() + timedelta(minutes=minutes)
+
+            await context.bot.restrict_chat_member(
+                chat.id,
+                target.id,
+                ChatPermissions(can_send_messages=False),
+                until_date=until
+            )
+        else:
+            await context.bot.restrict_chat_member(
+                chat.id,
+                target.id,
+                ChatPermissions(can_send_messages=False)
+            )
+
+        muted[str(target.id)] = target.first_name
+        save_json(MUTE_FILE, muted)
+
+        await msg.reply_text(f"🔇 {target.first_name} سکوت شد.")
+        return
+
+    # حذف سکوت
+    if text == "حذف سکوت" and msg.reply_to_message:
+        if member.status not in ["administrator", "creator"]:
+            return
+
+        target = msg.reply_to_message.from_user
+
+        await context.bot.restrict_chat_member(
+            chat.id,
+            target.id,
+            ChatPermissions(can_send_messages=True),
+            until_date=None
+        )
+
+        muted.pop(str(target.id), None)
+        save_json(MUTE_FILE, muted)
+
+        await msg.reply_text(f"🔊 {target.first_name} آزاد شد.")
+        return
 
     # ==============================
     # قیمت‌ها
@@ -142,13 +255,9 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(result, parse_mode=ParseMode.HTML)
         return
 
-    # ==============================
     # پاسخ ساده
-    # ==============================
-
     if text == "ربات":
         await msg.reply_text(f"جانم {user.first_name} 😊")
-        return
 
 
 # ==============================
