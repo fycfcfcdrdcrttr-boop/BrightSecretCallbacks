@@ -2,14 +2,10 @@ import requests
 from bs4 import BeautifulSoup
 from telegram import (
     Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
     ChatPermissions
 )
 from telegram.ext import (
     ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
     MessageHandler,
     ContextTypes,
     filters,
@@ -17,7 +13,7 @@ from telegram.ext import (
 from telegram.constants import ChatAction, ParseMode
 from datetime import datetime
 import pytz
-import asyncio
+
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
@@ -65,6 +61,7 @@ def build_price_message(name, price, site_time):
 # ==============================
 
 async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     if not update.message:
         return
 
@@ -79,13 +76,12 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type not in ["group", "supergroup"]:
         return
 
-    # گرفتن وضعیت کاربر (برای بررسی ادمین بودن)
-    member = await context.bot.get_chat_member(chat.id, user.id)
-
     # ======================
-    # سکوت نامحدود
+    # سکوت دائمی
     # ======================
     if text == "سکوت" and update.message.reply_to_message:
+
+        member = await context.bot.get_chat_member(chat.id, user.id)
 
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ فقط ادمین میتونه سکوت کنه.")
@@ -105,36 +101,32 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ======================
-   # ======================
-# حذف سکوت
-# ======================
-if text == "حذف سکوت" and update.message.reply_to_message:
+    # حذف سکوت
+    # ======================
+    if text == "حذف سکوت" and update.message.reply_to_message:
 
-    member = await context.bot.get_chat_member(chat.id, user.id)
+        member = await context.bot.get_chat_member(chat.id, user.id)
 
-    if member.status not in ["administrator", "creator"]:
-        await update.message.reply_text("❌ فقط ادمین میتونه حذف سکوت کنه.")
+        if member.status not in ["administrator", "creator"]:
+            await update.message.reply_text("❌ فقط ادمین میتونه حذف سکوت کنه.")
+            return
+
+        target_user = update.message.reply_to_message.from_user
+
+        await context.bot.restrict_chat_member(
+            chat_id=chat.id,
+            user_id=target_user.id,
+            permissions=ChatPermissions(can_send_messages=True),
+            until_date=None
+        )
+
+        await update.message.reply_text(
+            f"🔊 کاربر {target_user.first_name} از حالت سکوت خارج شد و می‌تواند پیام ارسال کند."
+        )
         return
 
-    target_user = update.message.reply_to_message.from_user
-
-    # حذف کامل محدودیت
-    await context.bot.restrict_chat_member(
-        chat_id=chat.id,
-        user_id=target_user.id,
-        permissions=ChatPermissions(
-            can_send_messages=True
-        ),
-        until_date=None
-    )
-
-    await update.message.reply_text(
-        f"🔊 کاربر {target_user.first_name} از حالت سکوت خارج شد و می‌تواند پیام ارسال کند."
-    )
-
-    return
     # ======================
-    # جواب ساده ربات
+    # پاسخ ساده
     # ======================
     if text == "ربات":
         await update.message.reply_text(f"جانم {user.first_name} 😊")
@@ -144,22 +136,17 @@ if text == "حذف سکوت" and update.message.reply_to_message:
     # قیمت‌ها
     # ======================
     urls = {
-        "قیمت ارز": "https://www.tgju.org/profile/price_dollar_rl",
-        "قیمت طلا": "https://www.tgju.org/profile/geram18",
-        "قیمت سکه": "https://www.tgju.org/profile/sekee"
-    }
-
-    names = {
-        "قیمت ارز": "💵 دلار",
-        "قیمت طلا": "💰 طلا ۱۸ عیار",
-        "قیمت سکه": "🪙 سکه"
+        "قیمت ارز": ("💵 دلار", "https://www.tgju.org/profile/price_dollar_rl"),
+        "قیمت طلا": ("💰 طلا ۱۸ عیار", "https://www.tgju.org/profile/geram18"),
+        "قیمت سکه": ("🪙 سکه", "https://www.tgju.org/profile/sekee")
     }
 
     if text in urls:
         await update.message.chat.send_action(ChatAction.TYPING)
 
-        price, site_time = fetch_price(urls[text])
-        message = build_price_message(names[text], price, site_time)
+        name, url = urls[text]
+        price, site_time = fetch_price(url)
+        message = build_price_message(name, price, site_time)
 
         await update.message.reply_text(
             message,
