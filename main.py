@@ -23,6 +23,7 @@ ADMIN_ID = 295168185
 MUTE_FILE = "muted_users.json"
 LOCK_FILE = "group_locks.json"
 USERS_FILE = "users.json"
+RPS_FILE = "rps_stats.json"
 
 
 # ==============================
@@ -75,6 +76,34 @@ def fetch_price(url):
 
 
 # ==============================
+# مدیریت آمار بازی
+# ==============================
+
+def update_rps_stats(user_id, name, result):
+    stats = load_json(RPS_FILE)
+
+    if str(user_id) not in stats:
+        stats[str(user_id)] = {
+            "name": name,
+            "win": 0,
+            "lose": 0,
+            "draw": 0,
+            "score": 0
+        }
+
+    if result == "win":
+        stats[str(user_id)]["win"] += 1
+        stats[str(user_id)]["score"] += 3
+    elif result == "lose":
+        stats[str(user_id)]["lose"] += 1
+    elif result == "draw":
+        stats[str(user_id)]["draw"] += 1
+        stats[str(user_id)]["score"] += 1
+
+    save_json(RPS_FILE, stats)
+
+
+# ==============================
 # بازی سنگ کاغذ قیچی
 # ==============================
 
@@ -91,6 +120,7 @@ async def rps_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    user = query.from_user
     user_choice = query.data.split("_")[1]
     choices = ["rock", "paper", "scissors"]
     bot_choice = random.choice(choices)
@@ -102,20 +132,25 @@ async def rps_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     if user_choice == bot_choice:
-        result = "🤝 مساوی شد!"
+        result_text = "🤝 مساوی شد!"
+        update_rps_stats(user.id, user.first_name, "draw")
+
     elif (
         (user_choice == "rock" and bot_choice == "scissors") or
         (user_choice == "paper" and bot_choice == "rock") or
         (user_choice == "scissors" and bot_choice == "paper")
     ):
-        result = "🎉 تو بردی!"
+        result_text = "🎉 تو بردی!"
+        update_rps_stats(user.id, user.first_name, "win")
+
     else:
-        result = "😎 من بردم!"
+        result_text = "😎 من بردم!"
+        update_rps_stats(user.id, user.first_name, "lose")
 
     text = (
         f"👤 انتخاب تو: {emoji[user_choice]}\n"
         f"🤖 انتخاب من: {emoji[bot_choice]}\n\n"
-        f"{result}"
+        f"{result_text}"
     )
 
     await query.edit_message_text(text)
@@ -170,15 +205,38 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(user)
     member = await context.bot.get_chat_member(chat.id, user.id)
 
-    # ==============================
     # شروع بازی
-    # ==============================
-
     if text == "بازی":
         await msg.reply_text(
             "🎮 سنگ، کاغذ یا قیچی رو انتخاب کن:",
             reply_markup=rps_menu()
         )
+        return
+
+    # جدول بازی
+    if text == "جدول بازی":
+        stats = load_json(RPS_FILE)
+
+        if not stats:
+            await msg.reply_text("هنوز کسی بازی نکرده 🎮")
+            return
+
+        sorted_players = sorted(
+            stats.values(),
+            key=lambda x: x["score"],
+            reverse=True
+        )
+
+        message = "🏆 جدول قهرمانان:\n\n"
+
+        for i, player in enumerate(sorted_players[:10], start=1):
+            message += (
+                f"{i}. {player['name']} — "
+                f"{player['score']} امتیاز "
+                f"(✅{player['win']} ❌{player['lose']} 🤝{player['draw']})\n"
+            )
+
+        await msg.reply_text(message)
         return
 
     # ==============================
