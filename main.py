@@ -20,7 +20,7 @@ TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
 
 # -----------------------------
-# گرفتن قیمت از سایت
+# گرفتن قیمت
 # -----------------------------
 def fetch_price(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -75,11 +75,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------------
-# دکمه‌ها
+# مدیریت دکمه‌ها
 # -----------------------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    user = query.from_user
+
+    # اگر بازگشت به منو
+    if query.data == "back":
+        text, keyboard = main_menu(user.first_name)
+        await query.message.reply_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML
+        )
+        return
 
     urls = {
         "dollar": "https://www.tgju.org/profile/price_dollar_rl",
@@ -95,7 +107,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     selected = query.data
 
-    # افکت تایپینگ حرفه‌ای
+    # افکت تایپینگ
     await query.message.chat.send_action(ChatAction.TYPING)
     await asyncio.sleep(1)
 
@@ -115,8 +127,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"━━━━━━━━━━━━━━━"
     )
 
+    # دکمه بازگشت
+    keyboard = [
+        [InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back")]
+    ]
+
     await query.message.reply_text(
         message,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.HTML
     )
 
