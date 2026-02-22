@@ -34,6 +34,7 @@ def load_users():
     with open(USERS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
 def save_user(user):
     users = load_users()
 
@@ -202,6 +203,10 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📊 تعداد کاربران: {len(users)}")
 
 
+# ==============================
+# خروجی اکسل
+# ==============================
+
 async def export_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -213,8 +218,39 @@ async def export_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_document(
         document=open(file_name, "rb"),
-        filename=file_name
+        filename=file_name,
+        caption="📊 خروجی کاربران"
     )
+
+
+# ==============================
+# ارسال همگانی
+# ==============================
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    if not context.args:
+        await update.message.reply_text("متن پیام رو بعد از دستور بنویس.")
+        return
+
+    message_text = " ".join(context.args)
+    users = load_users()
+
+    sent = 0
+
+    for user in users:
+        try:
+            await context.bot.send_message(
+                chat_id=user["user_id"],
+                text=message_text
+            )
+            sent += 1
+        except:
+            pass
+
+    await update.message.reply_text(f"✅ پیام برای {sent} نفر ارسال شد.")
 
 
 # ==============================
@@ -227,6 +263,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("users", users))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("export", export_users))
+app.add_handler(CommandHandler("broadcast", broadcast))
 app.add_handler(CallbackQueryHandler(button_handler))
 
 if __name__ == "__main__":
