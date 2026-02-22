@@ -61,6 +61,26 @@ def main_menu(first_name):
 
 
 # -----------------------------
+# ساخت پیام قیمت
+# -----------------------------
+def build_price_message(name, price, site_time):
+    iran_tz = pytz.timezone("Asia/Tehran")
+    iran_time = datetime.now(iran_tz).strftime("%H:%M:%S")
+
+    message = (
+        f"━━━━━━━━━━━━━━━\n"
+        f"<b>{name}</b>\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"💰 قیمت: <b>{price}</b> تومان\n\n"
+        f"🕒 زمان سایت: {site_time}\n"
+        f"🇮🇷 ساعت ایران: {iran_time}\n"
+        f"━━━━━━━━━━━━━━━"
+    )
+
+    return message
+
+
+# -----------------------------
 # /start
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,10 +103,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = query.from_user
 
-    # اگر بازگشت به منو
+    # بازگشت به منو
     if query.data == "back":
         text, keyboard = main_menu(user.first_name)
-        await query.message.reply_text(
+        await query.message.edit_text(
             text,
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
@@ -105,34 +125,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "coin": "🪙 سکه"
     }
 
-    selected = query.data
+    # اگر بروزرسانی بود
+    if query.data.startswith("refresh_"):
+        selected = query.data.replace("refresh_", "")
+    else:
+        selected = query.data
 
-    # افکت تایپینگ
+    # تایپینگ
     await query.message.chat.send_action(ChatAction.TYPING)
     await asyncio.sleep(1)
 
     price, site_time = fetch_price(urls[selected])
+    message = build_price_message(names[selected], price, site_time)
 
-    # ساعت ایران
-    iran_tz = pytz.timezone("Asia/Tehran")
-    iran_time = datetime.now(iran_tz).strftime("%H:%M:%S")
-
-    message = (
-        f"━━━━━━━━━━━━━━━\n"
-        f"<b>{names[selected]}</b>\n"
-        f"━━━━━━━━━━━━━━━\n\n"
-        f"💰 قیمت: <b>{price}</b> تومان\n\n"
-        f"🕒 زمان سایت: {site_time}\n"
-        f"🇮🇷 ساعت ایران: {iran_time}\n"
-        f"━━━━━━━━━━━━━━━"
-    )
-
-    # دکمه بازگشت
+    # دکمه‌ها
     keyboard = [
-        [InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back")]
+        [
+            InlineKeyboardButton("🔄 بروزرسانی", callback_data=f"refresh_{selected}")
+        ],
+        [
+            InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back")
+        ]
     ]
 
-    await query.message.reply_text(
+    await query.message.edit_text(
         message,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.HTML
