@@ -8,29 +8,31 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ChatAction, ParseMode
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import json
 import os
 
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
+
 MUTE_FILE = "muted_users.json"
+STATS_FILE = "daily_stats.json"
 
 
 # ==============================
-# مدیریت لیست سکوت
+# مدیریت فایل‌ها
 # ==============================
 
-def load_muted():
-    if not os.path.exists(MUTE_FILE):
+def load_json(file):
+    if not os.path.exists(file):
         return {}
-    with open(MUTE_FILE, "r", encoding="utf-8") as f:
+    with open(file, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_muted(data):
-    with open(MUTE_FILE, "w", encoding="utf-8") as f:
+def save_json(file, data):
+    with open(file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 
@@ -54,13 +56,11 @@ def fetch_price(url):
         price_formatted = "خطا"
 
     site_time = time_tag.text.strip() if time_tag else "نامشخص"
-
     return price_formatted, site_time
 
 
 def build_price_message(name, price, site_time):
     iran_time = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%H:%M:%S")
-
     return (
         f"━━━━━━━━━━━━━━━\n"
         f"<b>{name}</b>\n"
@@ -92,38 +92,61 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type not in ["group", "supergroup"]:
         return
 
+    # --------------------------
+    # 📊 شمارش پیام‌های روزانه
+    # --------------------------
+    stats = load_json(STATS_FILE)
+    today = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%Y-%m-%d")
+
+    if today not in stats:
+        stats = {today: 0}
+
+    stats[today] += 1
+    save_json(STATS_FILE, stats)
+
     member = await context.bot.get_chat_member(chat.id, user.id)
-    muted_users = load_muted()
-    iran_time = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%Y-%m-%d %H:%M:%S")
+    muted_users = load_json(MUTE_FILE)
 
     # ======================
-    # سکوت
+    # ⏳ سکوت زمان‌دار یا دائمی
     # ======================
-    if text == "سکوت" and update.message.reply_to_message:
+    if text.startswith("سکوت") and update.message.reply_to_message:
 
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ فقط ادمین میتونه سکوت کنه.")
             return
 
+        parts = text.split()
         target_user = update.message.reply_to_message.from_user
 
-        await context.bot.restrict_chat_member(
-            chat_id=chat.id,
-            user_id=target_user.id,
-            permissions=ChatPermissions(can_send_messages=False)
-        )
+        if len(parts) == 2 and parts[1].isdigit():
+            minutes = int(parts[1])
+            until_time = datetime.now() + timedelta(minutes=minutes)
 
-        muted_users[str(target_user.id)] = {
-            "name": target_user.first_name,
-            "muted_at": iran_time,
-            "muted_by": user.first_name
-        }
+            await context.bot.restrict_chat_member(
+                chat_id=chat.id,
+                user_id=target_user.id,
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=until_time
+            )
 
-        save_muted(muted_users)
+            await update.message.reply_text(
+                f"🔇 {target_user.first_name} به مدت {minutes} دقیقه سکوت شد."
+            )
 
-        await update.message.reply_text(
-            f"🔇 {target_user.first_name} (ID: {target_user.id}) سکوت شد."
-        )
+        else:
+            await context.bot.restrict_chat_member(
+                chat_id=chat.id,
+                user_id=target_user.id,
+                permissions=ChatPermissions(can_send_messages=False)
+            )
+
+            await update.message.reply_text(
+                f"🔇 {target_user.first_name} تا اطلاع ثانوی سکوت شد."
+            )
+
+        muted_users[str(target_user.id)] = target_user.first_name
+        save_json(MUTE_FILE, muted_users)
         return
 
     # ======================
@@ -145,37 +168,21 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         muted_users.pop(str(target_user.id), None)
-        save_muted(muted_users)
+        save_json(MUTE_FILE, muted_users)
 
         await update.message.reply_text(
-            f"🔊 {target_user.first_name} (ID: {target_user.id}) از سکوت خارج شد."
+            f"🔊 {target_user.first_name} از حالت سکوت خارج شد."
         )
         return
 
     # ======================
-    # لیست سکوت
+    # 📊 آمار امروز
     # ======================
-    if text == "لیست سکوت":
-
-        if member.status not in ["administrator", "creator"]:
-            return
-
-        if not muted_users:
-            await update.message.reply_text("📋 هیچ کاربری در حالت سکوت نیست.")
-            return
-
-        msg = "📋 لیست افراد سکوت‌شده:\n\n"
-
-        for uid, data in muted_users.items():
-            msg += (
-                f"👤 نام: {data['name']}\n"
-                f"🆔 آیدی: {uid}\n"
-                f"🕒 زمان سکوت: {data['muted_at']}\n"
-                f"👮 توسط: {data['muted_by']}\n"
-                f"━━━━━━━━━━━━━━\n"
-            )
-
-        await update.message.reply_text(msg)
+    if text == "آمار امروز":
+        count = stats.get(today, 0)
+        await update.message.reply_text(
+            f"📊 تعداد پیام‌های امروز گروه:\n\n{count} پیام"
+        )
         return
 
     # ======================
