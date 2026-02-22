@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from telegram import Update, ChatPermissions
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
-from telegram.constants import ChatAction
+from telegram.constants import ChatAction, ParseMode
 from datetime import datetime, timedelta
 import pytz
 import json
@@ -15,7 +15,7 @@ STATS_FILE = "daily_stats.json"
 
 
 # ==============================
-# مدیریت فایل‌ها
+# ابزار ذخیره
 # ==============================
 
 def load_json(file):
@@ -31,7 +31,41 @@ def save_json(file, data):
 
 
 # ==============================
-# پیام‌های گروه
+# گرفتن قیمت
+# ==============================
+
+def fetch_price(url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers, timeout=10)
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    price_tag = soup.find("span", {"data-col": "info.last_trade.PDrCotVal"})
+    time_tag = soup.find("span", {"data-col": "info.dt"})
+
+    if price_tag:
+        price_text = price_tag.text.strip().replace(",", "")
+        price = int(price_text) // 10
+        price_formatted = f"{price:,}"
+    else:
+        price_formatted = "خطا"
+
+    site_time = time_tag.text.strip() if time_tag else "نامشخص"
+
+    iran_time = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%H:%M:%S")
+
+    return (
+        f"━━━━━━━━━━━━━━━\n"
+        f"<b>💰 قیمت لحظه‌ای</b>\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"💵 قیمت: <b>{price_formatted}</b> تومان\n\n"
+        f"🕒 زمان سایت: {site_time}\n"
+        f"🇮🇷 ساعت ایران: {iran_time}\n"
+        f"━━━━━━━━━━━━━━━"
+    )
+
+
+# ==============================
+# هندل پیام‌ها
 # ==============================
 
 async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,10 +93,7 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%Y-%m-%d")
 
     if today not in stats:
-        stats[today] = {
-            "users": {},
-            "total": 0
-        }
+        stats[today] = {"users": {}, "total": 0}
 
     uid = str(user.id)
 
@@ -80,15 +111,26 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     muted_users = load_json(MUTE_FILE)
 
     # ======================
+    # 💰 قیمت‌ها
+    # ======================
+    prices = {
+        "قیمت ارز": "https://www.tgju.org/profile/price_dollar_rl",
+        "قیمت طلا": "https://www.tgju.org/profile/geram18",
+        "قیمت سکه": "https://www.tgju.org/profile/sekee",
+    }
+
+    if text in prices:
+        await update.message.chat.send_action(ChatAction.TYPING)
+        msg = fetch_price(prices[text])
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return
+
+    # ======================
     # 📊 آمار امروز
     # ======================
     if text == "آمار امروز":
 
         if member.status not in ["administrator", "creator"]:
-            return
-
-        if today not in stats:
-            await update.message.reply_text("امروز پیامی ثبت نشده.")
             return
 
         msg = "📊 آمار پیام‌های امروز:\n\n"
@@ -101,13 +143,13 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"━━━━━━━━━━━━━━\n"
             )
 
-        msg += f"\n📈 مجموع کل پیام‌های امروز گروه:\n{stats[today]['total']} پیام"
+        msg += f"\n📈 مجموع کل پیام‌های امروز:\n{stats[today]['total']} پیام"
 
         await update.message.reply_text(msg)
         return
 
     # ======================
-    # سکوت
+    # 🔇 سکوت
     # ======================
     if text.startswith("سکوت") and update.message.reply_to_message:
 
@@ -148,7 +190,7 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ======================
-    # حذف سکوت
+    # 🔊 حذف سکوت
     # ======================
     if text == "حذف سکوت" and update.message.reply_to_message:
 
@@ -173,7 +215,7 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ======================
-    # لیست سکوت
+    # 📋 لیست سکوت
     # ======================
     if text == "لیست سکوت":
 
@@ -193,16 +235,12 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ======================
-    # پاسخ ساده
+    # 🤖 پاسخ ساده
     # ======================
     if text == "ربات":
         await update.message.reply_text(f"جانم {user.first_name} 😊")
         return
 
-
-# ==============================
-# اجرا
-# ==============================
 
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_messages))
