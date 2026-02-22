@@ -1,20 +1,26 @@
 import requests
 from bs4 import BeautifulSoup
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
 )
+from telegram.constants import ChatAction, ParseMode
 from datetime import datetime
 import pytz
+import asyncio
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
 
 # -----------------------------
-# گرفتن قیمت
+# گرفتن قیمت از سایت
 # -----------------------------
 def fetch_price(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -31,7 +37,7 @@ def fetch_price(url):
     else:
         price_formatted = "خطا"
 
-    site_time = time_tag.text.strip() if time_tag else ""
+    site_time = time_tag.text.strip() if time_tag else "نامشخص"
 
     return price_formatted, site_time
 
@@ -47,8 +53,8 @@ def main_menu(first_name):
     ]
 
     text = (
-        f"سلام {first_name} جان 👋\n\n"
-        "یکی از گزینه‌ها رو انتخاب کن:"
+        f"سلام <b>{first_name}</b> جان 👋\n\n"
+        "یکی از گزینه‌های زیر رو انتخاب کن:"
     )
 
     return text, InlineKeyboardMarkup(keyboard)
@@ -63,7 +69,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         text,
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -87,17 +94,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     selected = query.data
+
+    # افکت تایپینگ حرفه‌ای
+    await query.message.chat.send_action(ChatAction.TYPING)
+    await asyncio.sleep(1)
+
     price, site_time = fetch_price(urls[selected])
 
-    # گرفتن ساعت ایران
+    # ساعت ایران
     iran_tz = pytz.timezone("Asia/Tehran")
-    iran_time = datetime.now(iran_tz).strftime("%Y/%m/%d - %H:%M:%S")
+    iran_time = datetime.now(iran_tz).strftime("%H:%M:%S")
+
+    message = (
+        f"━━━━━━━━━━━━━━━\n"
+        f"<b>{names[selected]}</b>\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"💰 قیمت: <b>{price}</b> تومان\n\n"
+        f"🕒 زمان سایت: {site_time}\n"
+        f"🇮🇷 ساعت ایران: {iran_time}\n"
+        f"━━━━━━━━━━━━━━━"
+    )
 
     await query.message.reply_text(
-        f"{names[selected]}\n\n"
-        f"قیمت: {price} تومان\n\n"
-        f"🕒 زمان سایت: {site_time}\n"
-        f"🇮🇷 ساعت ایران: {iran_time}"
+        message,
+        parse_mode=ParseMode.HTML
     )
 
 
