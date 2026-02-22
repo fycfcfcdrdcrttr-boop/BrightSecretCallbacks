@@ -15,44 +15,11 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ChatAction, ParseMode
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import asyncio
-import json
-import os
-import pandas as pd
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
-
-
-ADMIN_ID = 295168185
-USERS_FILE = "users.json"
-
-
-# ==============================
-# مدیریت کاربران
-# ==============================
-
-def load_users():
-    if not os.path.exists(USERS_FILE):
-        return []
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_user(user):
-    users = load_users()
-
-    if not any(u["user_id"] == user.id for u in users):
-        users.append({
-            "user_id": user.id,
-            "first_name": user.first_name,
-            "username": user.username if user.username else "ندارد",
-            "joined_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-
-        with open(USERS_FILE, "w", encoding="utf-8") as f:
-            json.dump(users, f, ensure_ascii=False, indent=4)
 
 
 # ==============================
@@ -94,89 +61,7 @@ def build_price_message(name, price, site_time):
 
 
 # ==============================
-# منوی اصلی
-# ==============================
-
-def main_menu(first_name):
-    keyboard = [
-        [InlineKeyboardButton("💵 قیمت دلار", callback_data="dollar")],
-        [InlineKeyboardButton("💰 قیمت طلا", callback_data="gold")],
-        [InlineKeyboardButton("🪙 قیمت سکه", callback_data="coin")],
-    ]
-
-    text = f"سلام <b>{first_name}</b> جان 👋\n\nیکی از گزینه‌ها رو انتخاب کن:"
-
-    return text, InlineKeyboardMarkup(keyboard)
-
-
-# ==============================
-# start
-# ==============================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    save_user(user)
-
-    text, keyboard = main_menu(user.first_name)
-
-    await update.message.reply_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode=ParseMode.HTML
-    )
-
-
-# ==============================
-# دکمه‌ها
-# ==============================
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "back":
-        text, keyboard = main_menu(query.from_user.first_name)
-        await query.message.edit_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
-        return
-
-    urls = {
-        "dollar": "https://www.tgju.org/profile/price_dollar_rl",
-        "gold": "https://www.tgju.org/profile/geram18",
-        "coin": "https://www.tgju.org/profile/sekee"
-    }
-
-    names = {
-        "dollar": "💵 دلار",
-        "gold": "💰 طلا ۱۸ عیار",
-        "coin": "🪙 سکه"
-    }
-
-    selected = query.data.replace("refresh_", "")
-
-    await query.message.chat.send_action(ChatAction.TYPING)
-    await asyncio.sleep(1)
-
-    price, site_time = fetch_price(urls[selected])
-    message = build_price_message(names[selected], price, site_time)
-
-    keyboard = [
-        [InlineKeyboardButton("🔄 بروزرسانی", callback_data=f"refresh_{selected}")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="back")]
-    ]
-
-    await query.message.edit_text(
-        message,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.HTML
-    )
-
-
-# ==============================
-# پیام‌های گروه (قیمت + سکوت)
+# پیام‌های گروه
 # ==============================
 
 async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,35 +79,68 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type not in ["group", "supergroup"]:
         return
 
-    # ===== سکوت =====
-    if text == "سکوت" and update.message.reply_to_message:
+    # گرفتن وضعیت کاربر (برای بررسی ادمین بودن)
+    member = await context.bot.get_chat_member(chat.id, user.id)
 
-        member = await context.bot.get_chat_member(chat.id, user.id)
+    # ======================
+    # سکوت نامحدود
+    # ======================
+    if text == "سکوت" and update.message.reply_to_message:
 
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ فقط ادمین میتونه سکوت کنه.")
             return
 
         target_user = update.message.reply_to_message.from_user
-        mute_until = datetime.now() + timedelta(minutes=10)
 
         await context.bot.restrict_chat_member(
             chat_id=chat.id,
             user_id=target_user.id,
-            permissions=ChatPermissions(can_send_messages=False),
-            until_date=mute_until
+            permissions=ChatPermissions(can_send_messages=False)
         )
 
         await update.message.reply_text(
-            f"🔇 {target_user.first_name} به مدت ۱۰ دقیقه سکوت شد."
+            f"🔇 {target_user.first_name} تا اطلاع ثانوی سکوت شد."
         )
         return
 
-    # ===== جواب ربات =====
+    # ======================
+    # حذف سکوت
+    # ======================
+    if text == "حذف سکوت" and update.message.reply_to_message:
+
+        if member.status not in ["administrator", "creator"]:
+            await update.message.reply_text("❌ فقط ادمین میتونه حذف سکوت کنه.")
+            return
+
+        target_user = update.message.reply_to_message.from_user
+
+        await context.bot.restrict_chat_member(
+            chat_id=chat.id,
+            user_id=target_user.id,
+            permissions=ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+        )
+
+        await update.message.reply_text(
+            f"🔊 {target_user.first_name} از سکوت خارج شد."
+        )
+        return
+
+    # ======================
+    # جواب ساده ربات
+    # ======================
     if text == "ربات":
         await update.message.reply_text(f"جانم {user.first_name} 😊")
         return
 
+    # ======================
+    # قیمت‌ها
+    # ======================
     urls = {
         "قیمت ارز": "https://www.tgju.org/profile/price_dollar_rl",
         "قیمت طلا": "https://www.tgju.org/profile/geram18",
@@ -253,8 +171,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 app = ApplicationBuilder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_handler))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_messages))
 
 if __name__ == "__main__":
