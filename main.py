@@ -9,11 +9,11 @@ import json
 import os
 import re
 
-
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
 MUTE_FILE = "muted_users.json"
 STATS_FILE = "daily_stats.json"
+LOCK_FILE = "group_locks.json"
 
 
 # ==============================
@@ -25,7 +25,6 @@ def load_json(file):
         return {}
     with open(file, "r", encoding="utf-8") as f:
         return json.load(f)
-
 
 def save_json(file, data):
     with open(file, "w", encoding="utf-8") as f:
@@ -52,17 +51,12 @@ def fetch_price(url):
         price_formatted = "خطا"
 
     site_time = time_tag.text.strip() if time_tag else "نامشخص"
-
     iran_time = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%H:%M:%S")
 
     return (
-        f"━━━━━━━━━━━━━━━\n"
-        f"<b>💰 قیمت لحظه‌ای</b>\n"
-        f"━━━━━━━━━━━━━━━\n\n"
-        f"💵 قیمت: <b>{price_formatted}</b> تومان\n\n"
+        f"💰 قیمت: <b>{price_formatted}</b> تومان\n"
         f"🕒 زمان سایت: {site_time}\n"
-        f"🇮🇷 ساعت ایران: {iran_time}\n"
-        f"━━━━━━━━━━━━━━━"
+        f"🇮🇷 ساعت ایران: {iran_time}"
     )
 
 
@@ -75,24 +69,19 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    text = update.message.text
-    if not text:
-        return
-
-    text = text.strip()
+    msg = update.message
+    text = msg.text.strip() if msg.text else ""
     user = update.effective_user
-    chat = update.message.chat
+    chat = msg.chat
 
     if chat.type not in ["group", "supergroup"]:
         return
 
     member = await context.bot.get_chat_member(chat.id, user.id)
 
-
-
-     # --------------------------
+    # ==============================
     # مدیریت قفل‌ها
-    # --------------------------
+    # ==============================
 
     locks = load_json(LOCK_FILE)
     gid = str(chat.id)
@@ -106,7 +95,7 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "only_admin": False
         }
 
-    # فقط ادمین اجازه تنظیم قفل
+    # تنظیم قفل توسط ادمین
     if member.status in ["administrator", "creator"]:
 
         lock_commands = {
@@ -129,41 +118,34 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("✅ تنظیم شد.")
             return
 
-    # اگر کاربر عادی است
+    # اجرای قفل برای کاربران عادی
     if member.status not in ["administrator", "creator"]:
 
-        # حالت فقط ادمین
         if locks[gid]["only_admin"]:
             await msg.delete()
             return
 
-        # قفل لینک
         if locks[gid]["link"] and text:
             if re.search(r"http[s]?://|www\\.", text):
                 await msg.delete()
                 return
 
-        # قفل عکس
         if locks[gid]["photo"] and msg.photo:
             await msg.delete()
             return
 
-        # قفل ویس
         if locks[gid]["voice"] and msg.voice:
             await msg.delete()
             return
 
-        # قفل فوروارد
         if locks[gid]["forward"] and msg.forward_date:
             await msg.delete()
             return
 
+    # ==============================
+    # ثبت آمار پیام
+    # ==============================
 
-
-
-    # --------------------------
-    # 📊 ثبت آمار پیام
-    # --------------------------
     stats = load_json(STATS_FILE)
     today = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%Y-%m-%d")
 
@@ -185,9 +167,10 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     muted_users = load_json(MUTE_FILE)
 
-    # ======================
-    # 💰 قیمت‌ها
-    # ======================
+    # ==============================
+    # قیمت‌ها
+    # ==============================
+
     prices = {
         "قیمت ارز": "https://www.tgju.org/profile/price_dollar_rl",
         "قیمت طلا": "https://www.tgju.org/profile/geram18",
@@ -195,45 +178,43 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     if text in prices:
-        await update.message.chat.send_action(ChatAction.TYPING)
-        msg = fetch_price(prices[text])
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        await msg.chat.send_action(ChatAction.TYPING)
+        result = fetch_price(prices[text])
+        await msg.reply_text(result, parse_mode=ParseMode.HTML)
         return
 
-    # ======================
-    # 📊 آمار امروز
-    # ======================
-    if text == "آمار امروز":
+    # ==============================
+    # آمار امروز
+    # ==============================
 
-        if member.status not in ["administrator", "creator"]:
-            return
+    if text == "آمار امروز" and member.status in ["administrator", "creator"]:
 
-        msg = "📊 آمار پیام‌های امروز:\n\n"
+        message = "📊 آمار پیام‌های امروز:\n\n"
 
         for uid, data in stats[today]["users"].items():
-            msg += (
+            message += (
                 f"👤 {data['name']}\n"
                 f"🆔 {uid}\n"
                 f"💬 {data['count']} پیام\n"
                 f"━━━━━━━━━━━━━━\n"
             )
 
-        msg += f"\n📈 مجموع کل پیام‌های امروز:\n{stats[today]['total']} پیام"
+        message += f"\n📈 مجموع کل پیام‌ها:\n{stats[today]['total']}"
 
-        await update.message.reply_text(msg)
+        await msg.reply_text(message)
         return
 
-    # ======================
-    # 🔇 سکوت
-    # ======================
-    if text.startswith("سکوت") and update.message.reply_to_message:
+    # ==============================
+    # سکوت
+    # ==============================
+
+    if text.startswith("سکوت") and msg.reply_to_message:
 
         if member.status not in ["administrator", "creator"]:
-            await update.message.reply_text("❌ فقط ادمین میتونه سکوت کنه.")
             return
 
+        target_user = msg.reply_to_message.from_user
         parts = text.split()
-        target_user = update.message.reply_to_message.from_user
 
         if len(parts) == 2 and parts[1].isdigit():
             minutes = int(parts[1])
@@ -245,10 +226,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ChatPermissions(can_send_messages=False),
                 until_date=until_time
             )
-
-            await update.message.reply_text(
-                f"🔇 {target_user.first_name} به مدت {minutes} دقیقه سکوت شد."
-            )
         else:
             await context.bot.restrict_chat_member(
                 chat.id,
@@ -256,23 +233,22 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ChatPermissions(can_send_messages=False)
             )
 
-            await update.message.reply_text(
-                f"🔇 {target_user.first_name} تا اطلاع ثانوی سکوت شد."
-            )
-
         muted_users[str(target_user.id)] = target_user.first_name
         save_json(MUTE_FILE, muted_users)
+
+        await msg.reply_text(f"🔇 {target_user.first_name} سکوت شد.")
         return
 
-    # ======================
-    # 🔊 حذف سکوت
-    # ======================
-    if text == "حذف سکوت" and update.message.reply_to_message:
+    # ==============================
+    # حذف سکوت
+    # ==============================
+
+    if text == "حذف سکوت" and msg.reply_to_message:
 
         if member.status not in ["administrator", "creator"]:
             return
 
-        target_user = update.message.reply_to_message.from_user
+        target_user = msg.reply_to_message.from_user
 
         await context.bot.restrict_chat_member(
             chat.id,
@@ -284,41 +260,37 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         muted_users.pop(str(target_user.id), None)
         save_json(MUTE_FILE, muted_users)
 
-        await update.message.reply_text(
-            f"🔊 {target_user.first_name} از حالت سکوت خارج شد."
-        )
+        await msg.reply_text(f"🔊 {target_user.first_name} آزاد شد.")
         return
 
-    # ======================
-    # 📋 لیست سکوت
-    # ======================
-    if text == "لیست سکوت":
+    # ==============================
+    # لیست سکوت
+    # ==============================
 
-        if member.status not in ["administrator", "creator"]:
-            return
+    if text == "لیست سکوت" and member.status in ["administrator", "creator"]:
 
         if not muted_users:
-            await update.message.reply_text("📋 هیچ کاربری در حالت سکوت نیست.")
+            await msg.reply_text("📋 کسی سکوت نیست.")
             return
 
-        msg = "📋 لیست افراد سکوت‌شده:\n\n"
+        message = "📋 لیست سکوت:\n\n"
 
         for uid, name in muted_users.items():
-            msg += f"👤 {name}\n🆔 {uid}\n━━━━━━━━━━━━━━\n"
+            message += f"👤 {name}\n🆔 {uid}\n━━━━━━━━━━━━━━\n"
 
-        await update.message.reply_text(msg)
+        await msg.reply_text(message)
         return
 
-    # ======================
-    # 🤖 پاسخ ساده
-    # ======================
+    # ==============================
+    # پاسخ ساده
+    # ==============================
+
     if text == "ربات":
-        await update.message.reply_text(f"جانم {user.first_name} 😊")
-        return
+        await msg.reply_text(f"جانم {user.first_name} 😊")
 
 
 app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_messages))
+app.add_handler(MessageHandler(filters.ALL, group_messages))
 
 if __name__ == "__main__":
     app.run_polling()
