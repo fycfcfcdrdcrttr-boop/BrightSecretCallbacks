@@ -4,6 +4,7 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    ChatPermissions
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -14,7 +15,7 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ChatAction, ParseMode
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import asyncio
 import json
@@ -22,6 +23,8 @@ import os
 import pandas as pd
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
+
+
 ADMIN_ID = 295168185
 USERS_FILE = "users.json"
 
@@ -124,7 +127,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================
-# پاسخ به دکمه‌ها
+# دکمه‌ها
 # ==============================
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,7 +176,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================
-# پاسخ داخل گروه
+# پیام‌های گروه (قیمت + سکوت)
 # ==============================
 
 async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,17 +184,41 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text
-    user = update.effective_user
-    chat_type = update.message.chat.type
-
-    if chat_type not in ["group", "supergroup"]:
-        return
-
     if not text:
         return
 
     text = text.strip()
+    user = update.effective_user
+    chat = update.message.chat
 
+    if chat.type not in ["group", "supergroup"]:
+        return
+
+    # ===== سکوت =====
+    if text == "سکوت" and update.message.reply_to_message:
+
+        member = await context.bot.get_chat_member(chat.id, user.id)
+
+        if member.status not in ["administrator", "creator"]:
+            await update.message.reply_text("❌ فقط ادمین میتونه سکوت کنه.")
+            return
+
+        target_user = update.message.reply_to_message.from_user
+        mute_until = datetime.now() + timedelta(minutes=10)
+
+        await context.bot.restrict_chat_member(
+            chat_id=chat.id,
+            user_id=target_user.id,
+            permissions=ChatPermissions(can_send_messages=False),
+            until_date=mute_until
+        )
+
+        await update.message.reply_text(
+            f"🔇 {target_user.first_name} به مدت ۱۰ دقیقه سکوت شد."
+        )
+        return
+
+    # ===== جواب ربات =====
     if text == "ربات":
         await update.message.reply_text(f"جانم {user.first_name} 😊")
         return
