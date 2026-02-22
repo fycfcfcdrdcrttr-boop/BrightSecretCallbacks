@@ -94,6 +94,7 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     member = await context.bot.get_chat_member(chat.id, user.id)
     muted_users = load_muted()
+    iran_time = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%Y-%m-%d %H:%M:%S")
 
     # ======================
     # سکوت
@@ -112,12 +113,16 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             permissions=ChatPermissions(can_send_messages=False)
         )
 
-        # ذخیره در لیست
-        muted_users[str(target_user.id)] = target_user.first_name
+        muted_users[str(target_user.id)] = {
+            "name": target_user.first_name,
+            "muted_at": iran_time,
+            "muted_by": user.first_name
+        }
+
         save_muted(muted_users)
 
         await update.message.reply_text(
-            f"🔇 {target_user.first_name} تا اطلاع ثانوی سکوت شد."
+            f"🔇 {target_user.first_name} (ID: {target_user.id}) سکوت شد."
         )
         return
 
@@ -139,12 +144,11 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             until_date=None
         )
 
-        # حذف از لیست
         muted_users.pop(str(target_user.id), None)
         save_muted(muted_users)
 
         await update.message.reply_text(
-            f"🔊 کاربر {target_user.first_name} از حالت سکوت خارج شد."
+            f"🔊 {target_user.first_name} (ID: {target_user.id}) از سکوت خارج شد."
         )
         return
 
@@ -161,14 +165,21 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         msg = "📋 لیست افراد سکوت‌شده:\n\n"
-        for name in muted_users.values():
-            msg += f"• {name}\n"
+
+        for uid, data in muted_users.items():
+            msg += (
+                f"👤 نام: {data['name']}\n"
+                f"🆔 آیدی: {uid}\n"
+                f"🕒 زمان سکوت: {data['muted_at']}\n"
+                f"👮 توسط: {data['muted_by']}\n"
+                f"━━━━━━━━━━━━━━\n"
+            )
 
         await update.message.reply_text(msg)
         return
 
     # ======================
-    # جواب ساده
+    # پاسخ ساده
     # ======================
     if text == "ربات":
         await update.message.reply_text(f"جانم {user.first_name} 😊")
