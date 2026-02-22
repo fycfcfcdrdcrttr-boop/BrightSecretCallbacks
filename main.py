@@ -7,12 +7,14 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
 )
+from datetime import datetime
+import pytz
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 
 
 # -----------------------------
-# گرفتن قیمت از tgju
+# گرفتن قیمت
 # -----------------------------
 def fetch_price(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -66,7 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------------
-# هندل دکمه‌ها
+# دکمه‌ها
 # -----------------------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -87,10 +89,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     selected = query.data
     price, site_time = fetch_price(urls[selected])
 
+    # گرفتن ساعت ایران
+    iran_tz = pytz.timezone("Asia/Tehran")
+    iran_time = datetime.now(iran_tz).strftime("%Y/%m/%d - %H:%M:%S")
+
     await query.message.reply_text(
         f"{names[selected]}\n\n"
         f"قیمت: {price} تومان\n\n"
-        f"🕒 زمان سایت:\n{site_time}"
+        f"🕒 زمان سایت: {site_time}\n"
+        f"🇮🇷 ساعت ایران: {iran_time}"
     )
 
 
