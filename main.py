@@ -512,6 +512,159 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+def guide_main_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("🃏 راهنمای حکم", callback_data="guide_hokm"),
+            InlineKeyboardButton("✊ راهنمای سنگ‌کاغذقیچی", callback_data="guide_rps"),
+        ],
+        [
+            InlineKeyboardButton("🔒 راهنمای قفل گروه", callback_data="guide_lock"),
+            InlineKeyboardButton("🔇 راهنمای سکوت", callback_data="guide_mute"),
+        ],
+        [
+            InlineKeyboardButton("💰 راهنمای قیمت‌ها", callback_data="guide_price"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def guide_back_keyboard():
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به منو", callback_data="guide_back")]]
+    return InlineKeyboardMarkup(keyboard)
+
+async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "guide_back":
+        await query.edit_message_text(
+            "📖 *راهنمای ربات*\n\nیکی از بخش‌های زیر رو انتخاب کن:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=guide_main_keyboard()
+        )
+        return
+
+    if data == "guide_hokm":
+        text = (
+            "🃏 *راهنمای بازی حکم*\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📌 *دستورات:*\n"
+            "▫️ `حکم` — شروع بازی جدید\n"
+            "▫️ `لغو حکم` — لغو بازی (فقط ادمین)\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "🎯 *مراحل بازی:*\n\n"
+            "1️⃣ یه نفر `حکم` می‌نویسه\n"
+            "2️⃣ ۴ نفر روی دکمه پیوستن کلیک می‌کنن\n"
+            "3️⃣ کارت‌ها در *پیوی ربات* به هر بازیکن ارسال می‌شه\n"
+            "4️⃣ نفر اول از پیوی خانواده حکم رو انتخاب می‌کنه\n"
+            "   (♠️ پیک / ♥️ دل / ♦️ خشت / ♣️ گشنیز)\n"
+            "5️⃣ بازیکنا از پیوی کارت می‌زنن\n"
+            "6️⃣ نتیجه هر دست در گروه نمایش داده می‌شه\n"
+            "7️⃣ کسی که ۱۳ دست رو تموم کنه بیشترین امتیاز رو داره\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📋 *قوانین:*\n\n"
+            "▪️ هر بازیکن ۱۳ کارت دارد\n"
+            "▪️ اگه همرنگ اول داری، *باید* همرنگ بزنی\n"
+            "▪️ کارت حکم هر کارت دیگه‌ای رو می‌بره\n"
+            "▪️ بین دو کارت حکم، بزرگتر می‌بره\n"
+            "▪️ بزرگی کارت‌ها: 2 < 3 < ... < 10 < J < Q < K < A\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "⚠️ *نکته مهم:*\n"
+            "همه بازیکنا باید قبلاً به ربات `/start` زده باشن\n"
+            "تا ربات بتونه در پیوی بهشون پیام بده."
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
+        return
+
+    if data == "guide_rps":
+        text = (
+            "✊ *راهنمای بازی سنگ، کاغذ، قیچی*\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📌 *دستورات:*\n"
+            "▫️ `بازی` — شروع بازی\n"
+            "▫️ `جدول بازی` — نمایش جدول برترین بازیکنان\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "🎯 *نحوه بازی:*\n\n"
+            "1️⃣ `بازی` بنویس\n"
+            "2️⃣ یکی از سنگ، کاغذ یا قیچی رو انتخاب کن\n"
+            "3️⃣ ربات هم انتخاب می‌کنه و نتیجه مشخص می‌شه\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "🏆 *امتیازدهی:*\n\n"
+            "▪️ برد = ۳ امتیاز ✅\n"
+            "▪️ مساوی = ۱ امتیاز 🤝\n"
+            "▪️ باخت = ۰ امتیاز ❌\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📋 *قوانین:*\n\n"
+            "▪️ سنگ > قیچی\n"
+            "▪️ کاغذ > سنگ\n"
+            "▪️ قیچی > کاغذ"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
+        return
+
+    if data == "guide_lock":
+        text = (
+            "🔒 *راهنمای قفل گروه*\n\n"
+            "⚠️ این دستورات فقط برای *ادمین‌ها* کار می‌کنه\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "🔗 *قفل لینک:*\n"
+            "▫️ `قفل لینک` — جلوگیری از ارسال لینک\n"
+            "▫️ `باز لینک` — اجازه ارسال لینک\n\n"
+            "🖼 *قفل عکس:*\n"
+            "▫️ `قفل عکس` — جلوگیری از ارسال عکس\n"
+            "▫️ `باز عکس` — اجازه ارسال عکس\n\n"
+            "🎙 *قفل ویس:*\n"
+            "▫️ `قفل ویس` — جلوگیری از ارسال ویس\n"
+            "▫️ `باز ویس` — اجازه ارسال ویس\n\n"
+            "↩️ *قفل فوروارد:*\n"
+            "▫️ `قفل فوروارد` — جلوگیری از فوروارد پیام\n"
+            "▫️ `باز فوروارد` — اجازه فوروارد پیام\n\n"
+            "👑 *حالت فقط ادمین:*\n"
+            "▫️ `فقط ادمین` — فقط ادمین‌ها می‌تونن پیام بزنن\n"
+            "▫️ `باز همه` — همه می‌تونن پیام بزنن"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
+        return
+
+    if data == "guide_mute":
+        text = (
+            "🔇 *راهنمای سکوت*\n\n"
+            "⚠️ این دستورات فقط برای *ادمین‌ها* کار می‌کنه\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📌 *دستورات:*\n\n"
+            "▫️ روی پیام کاربر ریپلای بزن و بنویس:\n\n"
+            "`سکوت` — سکوت دائمی\n"
+            "`سکوت 10` — سکوت ۱۰ دقیقه‌ای\n"
+            "`سکوت 60` — سکوت ۶۰ دقیقه‌ای\n\n"
+            "▫️ برای برداشتن سکوت:\n"
+            "`حذف سکوت` — (روی پیام کاربر ریپلای بزن)\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📋 *توضیح:*\n\n"
+            "▪️ عدد بعد از سکوت = تعداد دقیقه\n"
+            "▪️ اگه عدد ندی = سکوت تا زمانی که ادمین برداره"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
+        return
+
+    if data == "guide_price":
+        text = (
+            "💰 *راهنمای قیمت‌ها*\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📌 *دستورات:*\n\n"
+            "▫️ `قیمت ارز` — نرخ دلار به تومان 💵\n"
+            "▫️ `قیمت طلا` — قیمت طلای ۱۸ عیار 🥇\n"
+            "▫️ `قیمت سکه` — قیمت سکه امامی 🪙\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📋 *توضیح:*\n\n"
+            "▪️ قیمت‌ها از سایت tgju.org دریافت می‌شن\n"
+            "▪️ ساعت دریافت قیمت هم نمایش داده می‌شه\n"
+            "▪️ قیمت‌ها به تومان هستن"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
+        return
+
+
 def determine_trick_winner(game):
     """تعیین برنده یک دست"""
     table = game["table"]
@@ -601,6 +754,15 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_user(user)
     member = await context.bot.get_chat_member(chat.id, user.id)
+
+    # راهنمای بازی
+    if text == "راهنمای بازی":
+        await msg.reply_text(
+            "📖 *راهنمای ربات*\n\nیکی از بخش‌های زیر رو انتخاب کن:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=guide_main_keyboard()
+        )
+        return
 
     # شروع بازی سنگ کاغذ قیچی
     if text == "بازی":
@@ -805,6 +967,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("users", users_command))
 app.add_handler(CallbackQueryHandler(rps_handler, pattern="^rps_"))
 app.add_handler(CallbackQueryHandler(hokm_callback, pattern="^hokm_"))
+app.add_handler(CallbackQueryHandler(guide_callback, pattern="^guide_"))
 app.add_handler(MessageHandler(filters.ALL, group_messages))
 
 if __name__ == "__main__":
