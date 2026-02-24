@@ -205,7 +205,12 @@ def hokm_card_keyboard(hand, chat_id, player_id):
         keyboard.append(row)
     return InlineKeyboardMarkup(keyboard)
 
-async def start_hokm(update, context, chat_id):
+
+async def start_hokm(update, context, chat_id, starter_id):
+    """
+    شروع بازی حکم
+    starter_id = ID کاربری که بازی رو شروع کرده (فقط اون یا ادمین می‌تونن لغو کنن)
+    """
     games = load_json(HOKM_FILE)
     gid = str(chat_id)
 
@@ -222,6 +227,7 @@ async def start_hokm(update, context, chat_id):
         "round_starter": 0,
         "tricks_won": {},
         "message_id": None,
+        "starter_id": starter_id,  # 🆕 ذخیره ID شروع‌کننده
     }
     save_json(HOKM_FILE, games)
 
@@ -234,6 +240,7 @@ async def start_hokm(update, context, chat_id):
     )
     games[gid]["message_id"] = msg.message_id
     save_json(HOKM_FILE, games)
+
 
 async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -571,8 +578,22 @@ def guide_back_keyboard():
 
 async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     data = query.data
+    user = query.from_user
+
+    # ===============================================================
+    # 🔒 بررسی مالکیت پنل راهنما
+    # پیام راهنما همیشه reply به پیام کاربره، پس از reply_to_message می‌خونیم
+    # اگه reply_to_message وجود نداشت (مثلاً ربات مستقیم فرستاده) اجازه می‌دیم
+    # ===============================================================
+    reply_msg = query.message.reply_to_message
+    if reply_msg is not None:
+        original_sender_id = reply_msg.from_user.id
+        if user.id != original_sender_id:
+            await query.answer("❌ این پنل مال تو نیست!", show_alert=True)
+            return
+
+    await query.answer()
 
     # ❌ بستن پنل راهنما - پیام کاملاً حذف می‌شه
     if data == "guide_close":
@@ -595,7 +616,7 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "━━━━━━━━━━━━━━━━\n"
             "📌 *دستورات:*\n"
             "▫️ `حکم` — شروع بازی جدید\n"
-            "▫️ `لغو حکم` — لغو بازی (فقط ادمین)\n\n"
+            "▫️ `لغو حکم` — لغو بازی (فقط شروع‌کننده یا ادمین)\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "🎯 *مراحل بازی:*\n\n"
             "1️⃣ یه نفر `حکم` می‌نویسه\n"
@@ -786,21 +807,38 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if gid in games and games[gid]["state"] in ["waiting", "playing", "choosing_suit"]:
             await msg.reply_text("⚠️ یه بازی حکم الان در جریانه! صبر کن تموم بشه.")
             return
-        await start_hokm(update, context, chat.id)
+        # 🆕 پاس دادن ID کاربر شروع‌کننده بازی
+        await start_hokm(update, context, chat.id, user.id)
         return
 
-    # لغو بازی حکم توسط ادمین
+    # 🆕 لغو بازی حکم - فقط کسی که بازی رو شروع کرده یا ادمین می‌تونه لغو کنه
     if text == "لغو حکم":
-        if member.status not in ["administrator", "creator"]:
-            return
         games = load_json(HOKM_FILE)
         gid = str(chat.id)
-        if gid in games:
-            del games[gid]
-            save_json(HOKM_FILE, games)
-            await msg.reply_text("❌ بازی حکم لغو شد.")
-        else:
+
+        if gid not in games:
             await msg.reply_text("بازی حکمی در جریان نیست.")
+            return
+
+        game = games[gid]
+        is_admin = member.status in ["administrator", "creator"]
+        is_starter = game.get("starter_id") == user.id
+
+        if not is_admin and not is_starter:
+            # پیدا کردن اسم شروع‌کننده برای نمایش در پیام خطا
+            starter_name = next(
+                (p["name"] for p in game["players"] if p["id"] == game.get("starter_id")),
+                "شروع‌کننده بازی"
+            )
+            await msg.reply_text(
+                f"❌ فقط *{starter_name}* (کسی که بازی رو شروع کرده) یا ادمین می‌تونه بازی رو لغو کنه.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        del games[gid]
+        save_json(HOKM_FILE, games)
+        await msg.reply_text("❌ بازی حکم لغو شد.")
         return
 
     # جدول بازی سنگ کاغذ قیچی
