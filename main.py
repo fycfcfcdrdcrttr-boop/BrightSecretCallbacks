@@ -16,6 +16,7 @@ import json
 import os
 import re
 import random
+import asyncio
 
 TOKEN = "8479810920:AAH6avKRGiXdv6cKb-fNGMlxMfYREv74Q3E"
 ADMIN_ID = 295168185
@@ -28,6 +29,9 @@ HOKM_FILE = "hokm_games.json"
 DOZ_FILE = "doz_games.json"
 WORD_CHAIN_FILE = "word_chain_games.json"
 NUMBER_GUESS_FILE = "number_guess_games.json"
+
+# نگه‌داری تسک‌های تایمر در حافظه
+word_chain_timers = {}
 
 
 # ==============================
@@ -589,8 +593,10 @@ async def doz_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================
-# بازی کلمه‌بازی زنجیری
+# بازی کلمه‌بازی زنجیری (با تایمر ۵ ثانیه)
 # ==============================
+
+WORD_CHAIN_TIMEOUT = 5  # ثانیه
 
 def normalize_persian(text):
     text = text.strip()
@@ -604,6 +610,66 @@ def get_last_char(word):
 def get_first_char(word):
     word = normalize_persian(word)
     return word[0] if word else ""
+
+
+def cancel_word_chain_timer(game_id):
+    """لغو تایمر فعلی بازی"""
+    if game_id in word_chain_timers:
+        task = word_chain_timers.pop(game_id, None)
+        if task and not task.done():
+            task.cancel()
+
+
+async def word_chain_timeout_task(game_id, expected_turn, context, chat_id):
+    """تسک تایمر — اگه بازیکن در ۵ ثانیه جواب نداد، بازنده اعلام می‌شه"""
+    try:
+        await asyncio.sleep(WORD_CHAIN_TIMEOUT)
+    except asyncio.CancelledError:
+        return
+
+    games = load_json(WORD_CHAIN_FILE)
+    if game_id not in games:
+        return
+
+    game = games[game_id]
+    if game["state"] != "playing":
+        return
+
+    # اگه نوبت عوض شده (یعنی بازیکن جواب داده)، تایمر قدیمی رو نادیده بگیر
+    if game["current_turn"] != expected_turn:
+        return
+
+    # بازیکن در زمان جواب نداد
+    loser_idx = game["current_turn"]
+    winner_idx = 1 - loser_idx
+    loser_name = game["players"][loser_idx]["name"]
+    winner_name = game["players"][winner_idx]["name"]
+
+    del games[game_id]
+    save_json(WORD_CHAIN_FILE, games)
+
+    try:
+        await context.bot.send_message(
+            int(chat_id),
+            f"⏰ *زمان تموم شد!*\n\n"
+            f"❌ *{loser_name}* در {WORD_CHAIN_TIMEOUT} ثانیه جواب نداد!\n\n"
+            f"🏆 *{winner_name}* برنده شد!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception:
+        pass
+
+    word_chain_timers.pop(game_id, None)
+
+
+def start_word_chain_timer(game_id, current_turn, context, chat_id):
+    """شروع تایمر برای نوبت جاری"""
+    cancel_word_chain_timer(game_id)
+    task = asyncio.create_task(
+        word_chain_timeout_task(game_id, current_turn, context, chat_id)
+    )
+    word_chain_timers[game_id] = task
+
 
 async def word_chain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -645,15 +711,19 @@ async def word_chain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         last_char = get_last_char(start_word)
 
         await query.edit_message_text(
-            f"🔤 *بازی کلمه‌بازی زنجیری شروع شد!*\n\n"
+            f"🔤 *کلمه‌بازی زنجیری شروع شد!*\n\n"
             f"👤 {p1}  vs  👤 {p2}\n\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"📌 کلمه شروع: *{start_word}*\n"
             f"🔡 آخرین حرف: *{last_char}*\n\n"
             f"نوبت: 👤 *{current_name}*\n"
-            f"یه کلمه فارسی بنویس که با «*{last_char}*» شروع بشه!",
+            f"⏱ *{WORD_CHAIN_TIMEOUT} ثانیه* فرصت داری!\n"
+            f"با «*{last_char}*» شروع کن!",
             parse_mode=ParseMode.MARKDOWN
         )
+
+        # شروع تایمر برای نوبت اول
+        start_word_chain_timer(game_id, 0, context, game_id)
 
 
 # ==============================
@@ -859,28 +929,31 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔤 *راهنمای بازی کلمه‌بازی زنجیری*\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "📌 *دستورات:*\n"
-            "▫️ `کلمه بازی` — شروع بازی جدید\n"
+            f"▫️ `زنجیری بازی` — شروع بازی جدید\n"
             "▫️ `لغو کلمه` — لغو بازی جاری\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "🎯 *مراحل بازی:*\n\n"
-            "1️⃣ یه نفر `کلمه بازی` می‌نویسه\n"
+            "1️⃣ یه نفر `زنجیری بازی` می‌نویسه\n"
             "2️⃣ نفر دوم روی دکمه پیوستن کلیک می‌کنه\n"
             "3️⃣ ربات یه کلمه شروع تصادفی اعلام می‌کنه\n"
             "4️⃣ هر نفر به نوبت یه کلمه فارسی *در همین گروه* می‌نویسه\n"
-            "5️⃣ ربات داوری می‌کنه — اگه اشتباه باشه، بازی تموم می‌شه\n\n"
+            "5️⃣ ربات داوری می‌کنه\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            f"⏱ *تایمر: {WORD_CHAIN_TIMEOUT} ثانیه!*\n\n"
+            f"هر بازیکن فقط *{WORD_CHAIN_TIMEOUT} ثانیه* فرصت داره جواب بده!\n"
+            "اگه دیر بگه یا جواب نده = بازنده!\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "📋 *قوانین:*\n\n"
             "▪️ کلمه باید با *آخرین حرف* کلمه قبلی شروع بشه\n"
             "▪️ کلمه‌های *تکراری* قبول نیست\n"
-            "▪️ کلمه باید *فارسی* باشه (بدون عدد و انگلیسی)\n"
-            "▪️ اگه کسی اشتباه بگه یا تکراری بگه، *می‌بازه!*\n\n"
+            "▪️ کلمه باید *فارسی* باشه\n"
+            "▪️ اشتباه یا تکراری = بازنده!\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "💡 *مثال:*\n\n"
             "🤖 کلمه شروع: *آب*\n"
-            "👤 نفر اول: *باران* ✅ (با «ب» شروع شد)\n"
-            "👤 نفر دوم: *نان* ✅ (با «ن» شروع شد)\n"
-            "👤 نفر اول: *نور* ✅ (با «ن» شروع شد)\n"
-            "👤 نفر دوم: *نان* ❌ تکراری! ← می‌بازه"
+            "👤 نفر اول: *باران* ✅\n"
+            "👤 نفر دوم: *نان* ✅\n"
+            "👤 نفر اول: *نان* ❌ تکراری! ← بازنده"
         )
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
         return
@@ -890,11 +963,11 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔢 *راهنمای بازی گاو و گوسفند*\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "📌 *دستورات:*\n"
-            "▫️ `عدد بازی` — شروع بازی جدید\n"
+            "▫️ `گاو گوسفند` — شروع بازی جدید\n"
             "▫️ `لغو عدد` — لغو بازی جاری\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "🎯 *مراحل بازی:*\n\n"
-            "1️⃣ یه نفر `عدد بازی` می‌نویسه\n"
+            "1️⃣ یه نفر `گاو گوسفند` می‌نویسه\n"
             "2️⃣ نفر دوم روی دکمه پیوستن کلیک می‌کنه\n"
             "3️⃣ ربات یه عدد ۴ رقمی مخفی انتخاب می‌کنه\n"
             "4️⃣ بازیکنا به نوبت یه عدد ۴ رقمی حدس می‌زنن\n"
@@ -929,7 +1002,7 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎯 *نحوه بازی:*\n\n"
             "1️⃣ `بازی` بنویس\n"
             "2️⃣ سنگ، کاغذ یا قیچی انتخاب کن\n"
-            "3️⃣ ربات هم انتخاب می‌کنه و نتیجه مشخص می‌شه\n\n"
+            "3️⃣ ربات هم انتخاب می‌کنه\n\n"
             "🏆 برد=۳ امتیاز | مساوی=۱ امتیاز | باخت=۰\n\n"
             "📋 سنگ>قیچی | کاغذ>سنگ | قیچی>کاغذ"
         )
@@ -1040,15 +1113,15 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # شروع بازی سنگ کاغذ قیچی
+    # سنگ کاغذ قیچی
     if text == "بازی":
         await msg.reply_text("🎮 سنگ، کاغذ یا قیچی رو انتخاب کن:", reply_markup=rps_menu())
         return
 
     # ==============================
-    # بازی کلمه‌بازی زنجیری — شروع
+    # بازی کلمه‌بازی زنجیری — شروع با "زنجیری بازی"
     # ==============================
-    if text == "کلمه بازی":
+    if text == "زنجیری بازی":
         wc_games = load_json(WORD_CHAIN_FILE)
         game_id = str(chat.id)
         if game_id in wc_games and wc_games[game_id]["state"] in ["waiting", "playing"]:
@@ -1063,7 +1136,10 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_json(WORD_CHAIN_FILE, wc_games)
         keyboard = [[InlineKeyboardButton("🔤 پیوستن به بازی", callback_data=f"wchain_join_{game_id}")]]
         await msg.reply_text(
-            f"🔤 *کلمه‌بازی زنجیری*\n\n👤 {user.first_name} بازی رو شروع کرد!\nیه نفر دیگه باید بپیونده.",
+            f"🔤 *کلمه‌بازی زنجیری*\n\n"
+            f"👤 {user.first_name} بازی رو شروع کرد!\n"
+            f"یه نفر دیگه باید بپیونده.\n\n"
+            f"⏱ هر نفر *{WORD_CHAIN_TIMEOUT} ثانیه* فرصت داره!",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -1080,6 +1156,7 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin and not is_starter:
             await msg.reply_text("❌ فقط شروع‌کننده یا ادمین می‌تونه لغو کنه.")
             return
+        cancel_word_chain_timer(game_id)
         del wc_games[game_id]
         save_json(WORD_CHAIN_FILE, wc_games)
         await msg.reply_text("❌ بازی کلمه‌بازی لغو شد.")
@@ -1097,27 +1174,30 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user.id == current_player["id"]:
             word = normalize_persian(text)
 
-            # فقط پیام‌هایی که احتمالاً کلمه فارسی هستن پردازش می‌شن
-            # (از دستورات دیگه جلوگیری می‌کنیم)
-            skip_commands = ["راهنمای بازی", "بازی", "دوز", "حکم", "عدد بازی", "جدول بازی",
-                           "قیمت ارز", "قیمت طلا", "قیمت سکه", "ربات", "لغو دوز", "لغو حکم", "لغو عدد"]
+            # دستورات سیستمی را نادیده بگیر
+            skip_commands = [
+                "راهنمای بازی", "بازی", "دوز", "حکم", "گاو گوسفند", "جدول بازی",
+                "قیمت ارز", "قیمت طلا", "قیمت سکه", "ربات", "لغو دوز", "لغو حکم",
+                "لغو عدد", "لغو کلمه", "زنجیری بازی"
+            ]
             if word in skip_commands or word.startswith("تکرار ") or word.startswith("سکوت") or word == "حذف سکوت":
                 pass
             elif not re.match(r'^[\u0600-\u06FF]+$', word):
-                # نه فارسی خالص — نادیده بگیر (شاید دستور دیگه‌ای بوده)
+                # نه فارسی خالص — نادیده بگیر
                 pass
             else:
                 # بررسی تکراری بودن
                 if word in game["used_words"]:
+                    cancel_word_chain_timer(wc_game_id)
                     winner_idx = 1 - game["current_turn"]
                     winner_name = game["players"][winner_idx]["name"]
+                    del wc_games[wc_game_id]
+                    save_json(WORD_CHAIN_FILE, wc_games)
                     await msg.reply_text(
                         f"❌ *{user.first_name}* کلمه «{word}» قبلاً گفته شده!\n\n"
                         f"🏆 *{winner_name}* برنده شد!",
                         parse_mode=ParseMode.MARKDOWN
                     )
-                    del wc_games[wc_game_id]
-                    save_json(WORD_CHAIN_FILE, wc_games)
                     return
 
                 # بررسی حرف اول
@@ -1126,19 +1206,21 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 actual_first = get_first_char(word)
 
                 if required_first and actual_first != required_first:
+                    cancel_word_chain_timer(wc_game_id)
                     winner_idx = 1 - game["current_turn"]
                     winner_name = game["players"][winner_idx]["name"]
+                    del wc_games[wc_game_id]
+                    save_json(WORD_CHAIN_FILE, wc_games)
                     await msg.reply_text(
                         f"❌ *{user.first_name}* کلمه باید با «{required_first}» شروع بشه!\n"
                         f"تو با «{actual_first}» شروع کردی.\n\n"
                         f"🏆 *{winner_name}* برنده شد!",
                         parse_mode=ParseMode.MARKDOWN
                     )
-                    del wc_games[wc_game_id]
-                    save_json(WORD_CHAIN_FILE, wc_games)
                     return
 
-                # کلمه درسته!
+                # کلمه درسته! — تایمر ریست می‌شه
+                cancel_word_chain_timer(wc_game_id)
                 game["used_words"].append(word)
                 game["last_word"] = word
                 game["current_turn"] = 1 - game["current_turn"]
@@ -1150,15 +1232,19 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"✅ *{word}* — قبول شد!\n\n"
                     f"🔡 آخرین حرف: *{last_char}*\n"
                     f"نوبت: 👤 *{next_player['name']}*\n"
+                    f"⏱ *{WORD_CHAIN_TIMEOUT} ثانیه* فرصت داری!\n"
                     f"با «*{last_char}*» شروع کن!",
                     parse_mode=ParseMode.MARKDOWN
                 )
+
+                # شروع تایمر برای نوبت جدید
+                start_word_chain_timer(wc_game_id, game["current_turn"], context, wc_game_id)
                 return
 
     # ==============================
-    # بازی گاو و گوسفند — شروع
+    # بازی گاو و گوسفند — شروع با "گاو گوسفند"
     # ==============================
-    if text == "عدد بازی":
+    if text == "گاو گوسفند":
         ng_games = load_json(NUMBER_GUESS_FILE)
         game_id = str(chat.id)
         if game_id in ng_games and ng_games[game_id]["state"] in ["waiting", "playing"]:
