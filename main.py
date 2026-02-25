@@ -25,6 +25,7 @@ LOCK_FILE = "group_locks.json"
 USERS_FILE = "users.json"
 RPS_FILE = "rps_stats.json"
 HOKM_FILE = "hokm_games.json"
+DOZ_FILE = "doz_games.json"
 
 
 # ==============================
@@ -158,7 +159,7 @@ async def rps_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================
-# بازی حکم
+# بازی حکم - مشترک
 # ==============================
 
 SUITS = {"♠️": "پیک", "♥️": "دل", "♦️": "خشت", "♣️": "گشنیز"}
@@ -205,17 +206,30 @@ def hokm_card_keyboard(hand, chat_id, player_id):
         keyboard.append(row)
     return InlineKeyboardMarkup(keyboard)
 
+def hokm_mode_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("👥 دونفره", callback_data="hokm_mode_2"),
+            InlineKeyboardButton("👥👥 چهارنفره", callback_data="hokm_mode_4"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 
 async def start_hokm(update, context, chat_id, starter_id):
     """
-    شروع بازی حکم
-    starter_id = ID کاربری که بازی رو شروع کرده (فقط اون یا ادمین می‌تونن لغو کنن)
+    ابتدا از کاربر می‌پرسد چند نفره بازی کند
     """
+    msg = await update.message.reply_text(
+        "🃏 *بازی حکم*\n\nچند نفره بازی کنیم؟",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=hokm_mode_keyboard()
+    )
+    # موقتاً اطلاعات را در context ذخیره می‌کنیم
     games = load_json(HOKM_FILE)
     gid = str(chat_id)
-
     games[gid] = {
-        "state": "waiting",
+        "state": "selecting_mode",
         "players": [],
         "hands": {},
         "scores": {},
@@ -226,19 +240,10 @@ async def start_hokm(update, context, chat_id, starter_id):
         "current_turn": 0,
         "round_starter": 0,
         "tricks_won": {},
-        "message_id": None,
-        "starter_id": starter_id,  # 🆕 ذخیره ID شروع‌کننده
+        "message_id": msg.message_id,
+        "starter_id": starter_id,
+        "mode": None,  # 2 یا 4
     }
-    save_json(HOKM_FILE, games)
-
-    msg = await update.message.reply_text(
-        "🃏 *بازی حکم شروع شد!*\n\n"
-        "برای پیوستن دکمه زیر رو بزن.\n"
-        "نیاز به ۴ بازیکن داریم.",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=hokm_join_keyboard(chat_id)
-    )
-    games[gid]["message_id"] = msg.message_id
     save_json(HOKM_FILE, games)
 
 
@@ -247,6 +252,36 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user = query.from_user
     games = load_json(HOKM_FILE)
+
+    # ---- انتخاب حالت بازی (دو نفره / چهار نفره) ----
+    if data.startswith("hokm_mode_"):
+        mode = int(data.split("_")[2])
+        # پیدا کردن بازی مربوط به این چت
+        chat_id = str(query.message.chat_id)
+        gid = chat_id
+
+        if gid not in games or games[gid]["state"] != "selecting_mode":
+            await query.answer("بازی‌ای پیدا نشد!", show_alert=True)
+            return
+
+        # فقط شروع‌کننده می‌تواند حالت انتخاب کند
+        if games[gid]["starter_id"] != user.id:
+            await query.answer("فقط کسی که بازی را شروع کرده می‌تواند حالت انتخاب کند!", show_alert=True)
+            return
+
+        games[gid]["mode"] = mode
+        games[gid]["state"] = "waiting"
+        save_json(HOKM_FILE, games)
+
+        await query.answer(f"✅ حالت {'دو' if mode == 2 else 'چهار'} نفره انتخاب شد!")
+        await query.edit_message_text(
+            f"🃏 *بازی حکم {'دو' if mode == 2 else 'چهار'} نفره*\n\n"
+            f"برای پیوستن دکمه زیر رو بزن.\n"
+            f"نیاز به {mode} بازیکن داریم.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=hokm_join_keyboard(chat_id)
+        )
+        return
 
     # ---- پیوستن ----
     if data.startswith("hokm_join_"):
@@ -268,7 +303,9 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("قبلاً پیوستی!", show_alert=True)
             return
 
-        if len(game["players"]) >= 4:
+        max_players = game.get("mode", 4)
+
+        if len(game["players"]) >= max_players:
             await query.answer("بازی پر شده!", show_alert=True)
             return
 
@@ -277,25 +314,33 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game["tricks_won"][str(user.id)] = 0
 
         player_list = "\n".join([f"👤 {p['name']}" for p in game["players"]])
-        remaining = 4 - len(game["players"])
+        remaining = max_players - len(game["players"])
 
         await query.answer(f"✅ {user.first_name} پیوست!")
 
         if remaining > 0:
             await query.edit_message_text(
-                f"🃏 *بازی حکم*\n\nبازیکنان:\n{player_list}\n\n"
+                f"🃏 *بازی حکم {'دو' if max_players == 2 else 'چهار'} نفره*\n\nبازیکنان:\n{player_list}\n\n"
                 f"⏳ هنوز {remaining} نفر دیگه لازم داریم.",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=hokm_join_keyboard(chat_id)
             )
         else:
+            # شروع بازی
             deck = make_deck()
             game["state"] = "choosing_suit"
             game["turn_order"] = [str(p["id"]) for p in game["players"]]
 
-            for i, player in enumerate(game["players"]):
-                pid = str(player["id"])
-                game["hands"][pid] = deck[i*13:(i+1)*13]
+            if max_players == 4:
+                # هر بازیکن ۱۳ کارت
+                for i, player in enumerate(game["players"]):
+                    pid = str(player["id"])
+                    game["hands"][pid] = deck[i*13:(i+1)*13]
+            else:
+                # دو نفره: هر بازیکن ۲۶ کارت
+                for i, player in enumerate(game["players"]):
+                    pid = str(player["id"])
+                    game["hands"][pid] = deck[i*26:(i+1)*26]
 
             first_player = game["players"][0]
             game["hokm_caller"] = str(first_player["id"])
@@ -304,8 +349,8 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             player_list = "\n".join([f"👤 {p['name']}" for p in game["players"]])
             await query.edit_message_text(
-                f"🃏 *بازی حکم*\n\nبازیکنان:\n{player_list}\n\n"
-                f"✅ ۴ بازیکن آماده‌اند!\n"
+                f"🃏 *بازی حکم {'دو' if max_players == 2 else 'چهار'} نفره*\n\nبازیکنان:\n{player_list}\n\n"
+                f"✅ {max_players} بازیکن آماده‌اند!\n"
                 f"🎯 {first_player['name']} باید حکم رو انتخاب کنه.",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -361,9 +406,10 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         first_pid = game["turn_order"][0]
         first_name = next(p["name"] for p in game["players"] if str(p["id"]) == first_pid)
 
+        max_players = game.get("mode", 4)
         await context.bot.send_message(
             int(chat_id),
-            f"🃏 *بازی حکم شروع شد!*\n\n"
+            f"🃏 *بازی حکم {'دو' if max_players == 2 else 'چهار'} نفره شروع شد!*\n\n"
             f"🎯 حکم: {suit} {SUITS[suit]}\n\n"
             f"نوبت: 👤 *{first_name}*\n\n"
             f"برای دیدن کارت‌هات و بازی کردن، به پیوی ربات برو.",
@@ -429,12 +475,14 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player_name = next(p["name"] for p in game["players"] if str(p["id"]) == current_pid)
         await query.edit_message_text(f"✅ {player_name} کارت {card} رو زد.")
 
-        if len(game["table"]) == 4:
+        max_players = game.get("mode", 4)
+
+        if len(game["table"]) == max_players:
             winner_pid = determine_trick_winner(game)
             winner_name = next(p["name"] for p in game["players"] if str(p["id"]) == winner_pid)
             game["tricks_won"][winner_pid] = game["tricks_won"].get(winner_pid, 0) + 1
 
-            table_display = " | ".join([f"{game['table'][pid]}" for pid in game["turn_order"]])
+            table_display = " | ".join([f"{game['table'][pid]}" for pid in game["turn_order"] if pid in game["table"]])
 
             await context.bot.send_message(
                 int(chat_id),
@@ -470,8 +518,29 @@ async def hokm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_json(HOKM_FILE, games)
                 return
 
+            # نوبت برنده دست بعدی
+            next_pid = winner_pid
+            next_hand = game["hands"][next_pid]
+            next_player = next(p for p in game["players"] if str(p["id"]) == next_pid)
+            next_name = winner_name
+
+            await context.bot.send_message(
+                int(chat_id),
+                f"نوبت: 👤 *{next_name}* (برنده دست قبلی)",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+            try:
+                await context.bot.send_message(
+                    next_player["id"],
+                    f"🎯 نوبت توئه!\n🃏 کارت‌هات: {' '.join(next_hand)}\n🎯 حکم: {game['hokm_suit']}",
+                    reply_markup=hokm_card_keyboard(next_hand, chat_id, next_pid)
+                )
+            except Exception:
+                pass
+
         else:
-            next_idx = (game["current_turn"] + 1) % 4
+            next_idx = (game["current_turn"] + 1) % max_players
             game["current_turn"] = next_idx
             next_pid = game["turn_order"][next_idx]
             next_name = next(p["name"] for p in game["players"] if str(p["id"]) == next_pid)
@@ -542,15 +611,187 @@ def determine_trick_winner(game):
 
 
 # ==============================
+# بازی دوز (Tic-Tac-Toe)
+# ==============================
+
+def doz_board_keyboard(board, game_id):
+    """کیبورد صفحه بازی دوز"""
+    symbols = {None: "⬜", "X": "❌", "O": "⭕"}
+    keyboard = []
+    for row in range(3):
+        kb_row = []
+        for col in range(3):
+            idx = row * 3 + col
+            cell = board[idx]
+            kb_row.append(InlineKeyboardButton(
+                symbols[cell],
+                callback_data=f"doz_move_{game_id}_{idx}"
+            ))
+        keyboard.append(kb_row)
+    return InlineKeyboardMarkup(keyboard)
+
+def doz_check_winner(board):
+    """بررسی برنده بازی دوز"""
+    win_conditions = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8],  # ردیف‌ها
+        [0, 3, 6], [1, 4, 7], [2, 5, 8],  # ستون‌ها
+        [0, 4, 8], [2, 4, 6]               # قطرها
+    ]
+    for combo in win_conditions:
+        if board[combo[0]] and board[combo[0]] == board[combo[1]] == board[combo[2]]:
+            return board[combo[0]]
+    if all(cell is not None for cell in board):
+        return "draw"
+    return None
+
+def doz_board_text(board, game):
+    """نمایش متنی وضعیت بازی"""
+    p1_name = game["players"][0]["name"]
+    p2_name = game["players"][1]["name"] if len(game["players"]) > 1 else "منتظر..."
+    current_idx = game["current_turn"]
+    current_name = game["players"][current_idx]["name"] if len(game["players"]) > current_idx else "?"
+    return (
+        f"🎮 *بازی دوز*\n\n"
+        f"❌ {p1_name}  vs  ⭕ {p2_name}\n\n"
+        f"نوبت: {'❌' if current_idx == 0 else '⭕'} *{current_name}*"
+    )
+
+async def doz_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    user = query.from_user
+    games = load_json(DOZ_FILE)
+
+    game_id = data.split("_")[2]
+
+    if game_id not in games:
+        await query.answer("بازی پیدا نشد!", show_alert=True)
+        return
+
+    game = games[game_id]
+
+    if game["state"] != "waiting":
+        await query.answer("بازی شروع شده!", show_alert=True)
+        return
+
+    player_ids = [p["id"] for p in game["players"]]
+    if user.id in player_ids:
+        await query.answer("قبلاً پیوستی!", show_alert=True)
+        return
+
+    if len(game["players"]) >= 2:
+        await query.answer("بازی پر شده!", show_alert=True)
+        return
+
+    game["players"].append({"id": user.id, "name": user.first_name})
+    game["state"] = "playing"
+    save_json(DOZ_FILE, games)
+
+    await query.answer(f"✅ {user.first_name} پیوست!")
+    await query.edit_message_text(
+        doz_board_text(game["board"] if isinstance(game["board"], list) else [None]*9, game),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=doz_board_keyboard(game["board"], game_id)
+    )
+
+async def doz_move_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    user = query.from_user
+    games = load_json(DOZ_FILE)
+
+    parts = data.split("_")
+    game_id = parts[2]
+    cell_idx = int(parts[3])
+
+    if game_id not in games:
+        await query.answer("بازی پیدا نشد!", show_alert=True)
+        return
+
+    game = games[game_id]
+
+    if game["state"] != "playing":
+        await query.answer("بازی در جریان نیست!", show_alert=True)
+        return
+
+    current_player = game["players"][game["current_turn"]]
+    if user.id != current_player["id"]:
+        await query.answer("نوبت تو نیست!", show_alert=True)
+        return
+
+    board = game["board"]
+    if board[cell_idx] is not None:
+        await query.answer("این خونه پر هست!", show_alert=True)
+        return
+
+    symbol = "X" if game["current_turn"] == 0 else "O"
+    board[cell_idx] = symbol
+    game["board"] = board
+
+    winner = doz_check_winner(board)
+
+    if winner == "draw":
+        game["state"] = "done"
+        save_json(DOZ_FILE, games)
+        await query.answer("مساوی!")
+        await query.edit_message_text(
+            f"🎮 *بازی دوز*\n\n🤝 *مساوی شد!*\n\n"
+            f"❌ {game['players'][0]['name']}  vs  ⭕ {game['players'][1]['name']}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=doz_board_keyboard(board, game_id)
+        )
+        del games[game_id]
+        save_json(DOZ_FILE, games)
+        return
+    elif winner:
+        winner_name = current_player["name"]
+        game["state"] = "done"
+        save_json(DOZ_FILE, games)
+        await query.answer(f"🎉 {winner_name} برد!")
+        await query.edit_message_text(
+            f"🎮 *بازی دوز*\n\n"
+            f"🏆 *{winner_name} برد!* {'❌' if winner == 'X' else '⭕'}\n\n"
+            f"❌ {game['players'][0]['name']}  vs  ⭕ {game['players'][1]['name']}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=doz_board_keyboard(board, game_id)
+        )
+        del games[game_id]
+        save_json(DOZ_FILE, games)
+        return
+    else:
+        game["current_turn"] = 1 - game["current_turn"]
+        save_json(DOZ_FILE, games)
+        await query.answer("✅ حرکت ثبت شد!")
+        await query.edit_message_text(
+            doz_board_text(board, game),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=doz_board_keyboard(board, game_id)
+        )
+
+
+async def doz_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+
+    if data.startswith("doz_join_"):
+        await doz_join_callback(update, context)
+    elif data.startswith("doz_move_"):
+        await doz_move_callback(update, context)
+
+
+# ==============================
 # راهنمای ربات
 # ==============================
 
 def guide_main_keyboard():
-    """کیبورد منوی اصلی راهنما (با دکمه بستن)"""
     keyboard = [
         [
-            InlineKeyboardButton("🃏 راهنمای حکم", callback_data="guide_hokm"),
+            InlineKeyboardButton("🃏 راهنمای حکم ۴نفره", callback_data="guide_hokm4"),
+            InlineKeyboardButton("🃏 راهنمای حکم ۲نفره", callback_data="guide_hokm2"),
+        ],
+        [
             InlineKeyboardButton("✊ راهنمای سنگ‌کاغذقیچی", callback_data="guide_rps"),
+            InlineKeyboardButton("⭕ راهنمای دوز", callback_data="guide_doz"),
         ],
         [
             InlineKeyboardButton("🔒 راهنمای قفل گروه", callback_data="guide_lock"),
@@ -566,7 +807,6 @@ def guide_main_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def guide_back_keyboard():
-    """کیبورد صفحه‌های داخلی راهنما (بازگشت + بستن)"""
     keyboard = [
         [
             InlineKeyboardButton("🔙 بازگشت", callback_data="guide_back"),
@@ -581,11 +821,6 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user = query.from_user
 
-    # ===============================================================
-    # 🔒 بررسی مالکیت پنل راهنما
-    # پیام راهنما همیشه reply به پیام کاربره، پس از reply_to_message می‌خونیم
-    # اگه reply_to_message وجود نداشت (مثلاً ربات مستقیم فرستاده) اجازه می‌دیم
-    # ===============================================================
     reply_msg = query.message.reply_to_message
     if reply_msg is not None:
         original_sender_id = reply_msg.from_user.id
@@ -595,12 +830,10 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer()
 
-    # ❌ بستن پنل راهنما - پیام کاملاً حذف می‌شه
     if data == "guide_close":
         await query.message.delete()
         return
 
-    # 🔙 بازگشت به منوی اصلی راهنما
     if data == "guide_back":
         await query.edit_message_text(
             "📖 *راهنمای ربات*\n\nیکی از بخش‌های زیر رو انتخاب کن:",
@@ -609,10 +842,9 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 🃏 راهنمای حکم
-    if data == "guide_hokm":
+    if data == "guide_hokm4":
         text = (
-            "🃏 *راهنمای بازی حکم*\n\n"
+            "🃏 *راهنمای بازی حکم ۴ نفره*\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "📌 *دستورات:*\n"
             "▫️ `حکم` — شروع بازی جدید\n"
@@ -620,13 +852,14 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "━━━━━━━━━━━━━━━━\n"
             "🎯 *مراحل بازی:*\n\n"
             "1️⃣ یه نفر `حکم` می‌نویسه\n"
-            "2️⃣ ۴ نفر روی دکمه پیوستن کلیک می‌کنن\n"
-            "3️⃣ کارت‌ها در *پیوی ربات* به هر بازیکن ارسال می‌شه\n"
-            "4️⃣ نفر اول از پیوی خانواده حکم رو انتخاب می‌کنه\n"
+            "2️⃣ حالت ۴ نفره رو انتخاب می‌کنه\n"
+            "3️⃣ ۴ نفر روی دکمه پیوستن کلیک می‌کنن\n"
+            "4️⃣ کارت‌ها در *پیوی ربات* به هر بازیکن ارسال می‌شه\n"
+            "5️⃣ نفر اول از پیوی حکم رو انتخاب می‌کنه\n"
             "   (♠️ پیک / ♥️ دل / ♦️ خشت / ♣️ گشنیز)\n"
-            "5️⃣ بازیکنا از پیوی کارت می‌زنن\n"
-            "6️⃣ نتیجه هر دست در گروه نمایش داده می‌شه\n"
-            "7️⃣ کسی که بیشترین دست رو ببره برنده‌ست\n\n"
+            "6️⃣ بازیکنا از پیوی کارت می‌زنن\n"
+            "7️⃣ نتیجه هر دست در گروه نمایش داده می‌شه\n"
+            "8️⃣ کسی که بیشترین دست رو ببره برنده‌ست\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "📋 *قوانین:*\n\n"
             "▪️ هر بازیکن ۱۳ کارت دارد\n"
@@ -634,15 +867,74 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▪️ کارت حکم هر کارت دیگه‌ای رو می‌بره\n"
             "▪️ بین دو کارت حکم، بزرگتر می‌بره\n"
             "▪️ بزرگی کارت‌ها: 2 < 3 < ... < 10 < J < Q < K < A\n\n"
-            "━━━━━━━━━━━━━━━━\n"
             "⚠️ *نکته مهم:*\n"
-            "همه بازیکنا باید قبلاً به ربات `/start` زده باشن\n"
-            "تا ربات بتونه در پیوی بهشون پیام بده."
+            "همه بازیکنا باید قبلاً به ربات `/start` زده باشن"
         )
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
         return
 
-    # ✊ راهنمای سنگ کاغذ قیچی
+    if data == "guide_hokm2":
+        text = (
+            "🃏 *راهنمای بازی حکم ۲ نفره*\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📌 *دستورات:*\n"
+            "▫️ `حکم` — شروع بازی جدید\n"
+            "▫️ `لغو حکم` — لغو بازی (فقط شروع‌کننده یا ادمین)\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "🎯 *مراحل بازی:*\n\n"
+            "1️⃣ یه نفر `حکم` می‌نویسه\n"
+            "2️⃣ حالت *۲ نفره* رو انتخاب می‌کنه\n"
+            "3️⃣ نفر دوم روی دکمه پیوستن کلیک می‌کنه\n"
+            "4️⃣ هر بازیکن *۲۶ کارت* در پیوی ربات دریافت می‌کنه\n"
+            "5️⃣ نفر اول حکم رو انتخاب می‌کنه\n"
+            "6️⃣ بازیکنا از پیوی کارت می‌زنن\n"
+            "7️⃣ نتیجه هر دست در گروه نمایش داده می‌شه\n"
+            "8️⃣ کسی که بیشترین دست رو ببره برنده‌ست\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📋 *قوانین مخصوص حکم ۲ نفره:*\n\n"
+            "▪️ هر بازیکن ۲۶ کارت دارد (نیمی از کل)\n"
+            "▪️ در هر دست، هر نفر ۱ کارت می‌زند\n"
+            "▪️ برنده هر دست، دست بعدی را شروع می‌کند\n"
+            "▪️ اگه همرنگ اول داری، *باید* همرنگ بزنی\n"
+            "▪️ کارت حکم هر کارت دیگه‌ای رو می‌بره\n"
+            "▪️ بین دو کارت حکم، بزرگتر می‌بره\n"
+            "▪️ بزرگی کارت‌ها: 2 < 3 < ... < 10 < J < Q < K < A\n"
+            "▪️ مجموع دست‌ها ۲۶ تاست — برنده کسی‌ست که بیشتر از ۱۳ دست ببره\n\n"
+            "⚠️ *نکته مهم:*\n"
+            "هر دو بازیکن باید قبلاً به ربات `/start` زده باشن"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
+        return
+
+    if data == "guide_doz":
+        text = (
+            "⭕ *راهنمای بازی دوز (Tic-Tac-Toe)*\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📌 *دستورات:*\n"
+            "▫️ `دوز` — شروع بازی جدید\n"
+            "▫️ `لغو دوز` — لغو بازی جاری\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "🎯 *مراحل بازی:*\n\n"
+            "1️⃣ یه نفر `دوز` می‌نویسه\n"
+            "2️⃣ نفر دوم روی دکمه پیوستن کلیک می‌کنه\n"
+            "3️⃣ بازی شروع می‌شه — نفر اول ❌ و نفر دوم ⭕ هست\n"
+            "4️⃣ هر نفر در نوبت خودش یه خونه رو انتخاب می‌کنه\n"
+            "5️⃣ اولین نفری که ۳ خونه پشت هم رو پر کنه برنده‌ست!\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "📋 *قوانین:*\n\n"
+            "▪️ هر بازیکن در نوبت خودش فقط یه خونه انتخاب می‌کنه\n"
+            "▪️ خونه‌ای که قبلاً پر شده قابل انتخاب نیست\n"
+            "▪️ برد: ۳ علامت پشت هم (ردیف، ستون یا قطر)\n"
+            "▪️ اگه همه ۹ خونه پر بشن و کسی نبره = مساوی!\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "🏆 *حالت‌های برد:*\n\n"
+            "▪️ ❌ ❌ ❌ — سطر افقی\n"
+            "▪️ ⬇️ ⬇️ ⬇️ — ستون عمودی\n"
+            "▪️ ↘️ یا ↙️ — قطر"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
+        return
+
     if data == "guide_rps":
         text = (
             "✊ *راهنمای بازی سنگ، کاغذ، قیچی*\n\n"
@@ -669,7 +961,6 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
         return
 
-    # 🔒 راهنمای قفل گروه
     if data == "guide_lock":
         text = (
             "🔒 *راهنمای قفل گروه*\n\n"
@@ -694,7 +985,6 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
         return
 
-    # 🔇 راهنمای سکوت
     if data == "guide_mute":
         text = (
             "🔇 *راهنمای سکوت*\n\n"
@@ -715,7 +1005,6 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=guide_back_keyboard())
         return
 
-    # 💰 راهنمای قیمت‌ها
     if data == "guide_price":
         text = (
             "💰 *راهنمای قیمت‌ها*\n\n"
@@ -783,6 +1072,15 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(user)
     member = await context.bot.get_chat_member(chat.id, user.id)
 
+    # ==============================
+    # تکرار کردن پیام
+    # ==============================
+    if text.startswith("تکرار "):
+        repeat_text = text[len("تکرار "):].strip()
+        if repeat_text:
+            await msg.reply_text(repeat_text)
+        return
+
     # راهنمای بازی
     if text == "راهنمای بازی":
         await msg.reply_text(
@@ -800,18 +1098,66 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # شروع بازی دوز
+    if text == "دوز":
+        doz_games = load_json(DOZ_FILE)
+        game_id = str(chat.id)
+
+        if game_id in doz_games and doz_games[game_id]["state"] in ["waiting", "playing"]:
+            await msg.reply_text("⚠️ یه بازی دوز الان در جریانه! صبر کن تموم بشه.")
+            return
+
+        doz_games[game_id] = {
+            "state": "waiting",
+            "players": [{"id": user.id, "name": user.first_name}],
+            "board": [None] * 9,
+            "current_turn": 0,
+            "starter_id": user.id,
+        }
+        save_json(DOZ_FILE, doz_games)
+
+        keyboard = [[InlineKeyboardButton("🎮 پیوستن به بازی دوز", callback_data=f"doz_join_{game_id}")]]
+        await msg.reply_text(
+            f"⭕ *بازی دوز*\n\n"
+            f"👤 {user.first_name} بازی رو شروع کرد!\n"
+            f"یه نفر دیگه باید بپیونده.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # لغو بازی دوز
+    if text == "لغو دوز":
+        doz_games = load_json(DOZ_FILE)
+        game_id = str(chat.id)
+
+        if game_id not in doz_games:
+            await msg.reply_text("بازی دوزی در جریان نیست.")
+            return
+
+        is_admin = member.status in ["administrator", "creator"]
+        is_starter = doz_games[game_id].get("starter_id") == user.id
+
+        if not is_admin and not is_starter:
+            await msg.reply_text("❌ فقط شروع‌کننده بازی یا ادمین می‌تونه لغو کنه.")
+            return
+
+        del doz_games[game_id]
+        save_json(DOZ_FILE, doz_games)
+        await msg.reply_text("❌ بازی دوز لغو شد.")
+        return
+
     # شروع بازی حکم
     if text == "حکم":
         games = load_json(HOKM_FILE)
         gid = str(chat.id)
-        if gid in games and games[gid]["state"] in ["waiting", "playing", "choosing_suit"]:
+        if gid in games and games[gid]["state"] in ["waiting", "playing", "choosing_suit", "selecting_mode"]:
             await msg.reply_text("⚠️ یه بازی حکم الان در جریانه! صبر کن تموم بشه.")
             return
-        # 🆕 پاس دادن ID کاربر شروع‌کننده بازی
         await start_hokm(update, context, chat.id, user.id)
         return
 
-    # 🆕 لغو بازی حکم - فقط کسی که بازی رو شروع کرده یا ادمین می‌تونه لغو کنه
+    # لغو بازی حکم
     if text == "لغو حکم":
         games = load_json(HOKM_FILE)
         gid = str(chat.id)
@@ -825,7 +1171,6 @@ async def group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_starter = game.get("starter_id") == user.id
 
         if not is_admin and not is_starter:
-            # پیدا کردن اسم شروع‌کننده برای نمایش در پیام خطا
             starter_name = next(
                 (p["name"] for p in game["players"] if p["id"] == game.get("starter_id")),
                 "شروع‌کننده بازی"
@@ -1012,6 +1357,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("users", users_command))
 app.add_handler(CallbackQueryHandler(rps_handler, pattern="^rps_"))
 app.add_handler(CallbackQueryHandler(hokm_callback, pattern="^hokm_"))
+app.add_handler(CallbackQueryHandler(doz_callback, pattern="^doz_"))
 app.add_handler(CallbackQueryHandler(guide_callback, pattern="^guide_"))
 app.add_handler(MessageHandler(filters.ALL, group_messages))
 
